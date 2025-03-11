@@ -8,12 +8,15 @@ from werkzeug.utils import secure_filename
 from app.ai_client import AIClient
 import datetime
 from PIL import Image
+from app.akshare_client import AKShareClient  # 导入AKShare客户端
 
 # 创建蓝图
 main = Blueprint('main', __name__)
 
 # AI客户端实例
 ai_client = AIClient()
+# AKShare客户端实例
+akshare_client = AKShareClient()
 
 # 允许的图片扩展名
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
@@ -312,3 +315,124 @@ def analyze_image():
         error_msg = f"分析过程中出错: {str(e)}"
         logging.error(error_msg)
         return jsonify({'error': error_msg}), 500 
+
+@main.route('/api/stock/data', methods=['GET'])
+def get_stock_data():
+    """获取股票数据API"""
+    try:
+        symbol = request.args.get('symbol', 'sh000001')  # 默认为上证指数
+        days = int(request.args.get('days', 90))  # 默认90天
+        start_date = request.args.get('start_date')  # 可选起始日期
+        end_date = request.args.get('end_date')  # 可选结束日期
+        adjust = request.args.get('adjust', 'qfq')  # 默认前复权
+        
+        # 获取股票数据
+        df = akshare_client.get_stock_data(symbol, start_date=start_date, end_date=end_date, adjust=adjust)
+        
+        if df is None:
+            return jsonify({'error': '无法获取股票数据'}), 400
+        
+        # 转换为JSON格式
+        data = df.reset_index().to_dict(orient='records')
+        data = [{k: str(v) if k == 'Date' else v for k, v in item.items()} for item in data]
+        
+        return jsonify({
+            'symbol': symbol,
+            'data': data[-days:] if len(data) > days else data  # 只返回最近N天数据
+        })
+    
+    except Exception as e:
+        logging.error(f"获取股票数据出错: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/stock/chart', methods=['GET'])
+def generate_stock_chart():
+    """生成股票K线图API"""
+    try:
+        symbol = request.args.get('symbol', 'sh000001')  # 默认为上证指数
+        days = int(request.args.get('days', 60))  # 默认60天
+        start_date = request.args.get('start_date')  # 可选起始日期
+        end_date = request.args.get('end_date')  # 可选结束日期
+        adjust = request.args.get('adjust', 'qfq')  # 默认前复权
+        show_volume = request.args.get('volume', 'true').lower() == 'true'  # 显示成交量
+        
+        # 移动平均线设置
+        mav_param = request.args.get('mav', '5,20')
+        try:
+            mav = tuple(int(x) for x in mav_param.split(',') if x.strip())
+            if not mav:
+                mav = None
+        except:
+            mav = (5, 20)  # 默认5日、20日均线
+        
+        # 获取股票数据
+        df = akshare_client.get_stock_data(symbol, start_date=start_date, end_date=end_date, adjust=adjust)
+        
+        if df is None:
+            return jsonify({'error': '无法获取股票数据'}), 400
+        
+        # 获取股票名称
+        stock_name = symbol
+        if symbol.startswith('sh'):
+            if symbol == 'sh000001':
+                stock_name = '上证指数'
+            elif symbol == 'sh000300':
+                stock_name = '沪深300'
+            # 可以添加更多常用指数
+        
+        # 生成图表标题
+        title = f"{stock_name} ({symbol}) K线图"
+        
+        # 生成K线图
+        file_path = akshare_client.generate_kline_chart(
+            df, 
+            title=title, 
+            days=days, 
+            show_volume=show_volume, 
+            mav=mav
+        )
+        
+        if file_path is None:
+            return jsonify({'error': '生成K线图失败'}), 500
+        
+        # 返回图表URL
+        image_filename = os.path.basename(file_path)
+        image_url = f"/static/images/charts/{image_filename}"
+        
+        return jsonify({
+            'symbol': symbol,
+            'title': title,
+            'image_url': image_url
+        })
+    
+    except Exception as e:
+        logging.error(f"生成K线图出错: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/stock/list', methods=['GET'])
+def get_stock_list():
+    """获取股票列表API"""
+    try:
+        category = request.args.get('category', 'index')  # 默认获取指数列表
+        
+        if category == 'index':
+            # 获取常用指数列表
+            stock_list = akshare_client.get_index_list()
+        else:
+            # 获取A股股票列表
+            stock_list = akshare_client.get_stock_list()
+        
+        if stock_list is None:
+            return jsonify({'error': '无法获取股票列表'}), 400
+        
+        # 转换为JSON格式
+        data = stock_list.to_dict(orient='records')
+        
+        return jsonify({
+            'category': category,
+            'data': data
+        })
+    
+    except Exception as e:
+        logging.error(f"获取股票列表出错: {e}")
+        return jsonify({'error': str(e)}), 500 
