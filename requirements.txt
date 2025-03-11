@@ -1,0 +1,9 @@
+flask==2.3.2
+flask-cors==4.0.0
+markdown==3.5.1
+openai==1.14.0
+python-dotenv==1.0.0
+Werkzeug==2.3.6
+httpx==0.27.2
+pillow==11.1.0
+oss2==2.19.1  # 阿里云OSS Python SDK 

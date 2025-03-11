@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股市分析工具 - 测试页面</title>
+    <style>
+        body {
+            font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        h1, h2 {
+            color: #007bff;
+        }
+        .section {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], 
+        input[type="file"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+        #loading, #error, #result {
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            display: none;
+        }
+        #loading {
+            background-color: #e9f5ff;
+            color: #0069d9;
+        }
+        #error {
+            background-color: #ffebee;
+            color: #d32f2f;
+        }
+        #result {
+            background-color: #f1f8e9;
+            color: #388e3c;
+            white-space: pre-wrap;
+        }
+        .links {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        a {
+            color: #007bff;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .preview-container {
+            margin-top: 15px;
+            max-width: 100%;
+            text-align: center;
+        }
+        .preview-image {
+            max-width: 100%;
+            max-height: 400px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: none;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .status-success {
+            background-color: #4caf50;
+            color: white;
+        }
+        .status-error {
+            background-color: #f44336;
+            color: white;
+        }
+        .status-warning {
+            background-color: #ff9800;
+            color: white;
+        }
+        .verification-section {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e8f5e9;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>股市分析工具 - 测试页面</h1>
+    
+    <div class="section">
+        <h2>上传K线图片</h2>
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="fileInput">选择图片文件：</label>
+                <input type="file" id="fileInput" name="file" accept="image/*">
+                <div class="preview-container">
+                    <img id="previewImage" class="preview-image" src="" alt="图片预览">
+                </div>
+            </div>
+            <button type="submit">上传图片</button>
+        </form>
+        <div id="uploadResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>分析K线图</h2>
+        <form id="analyzeForm">
+            <div class="form-group">
+                <label for="filename">文件名：</label>
+                <input type="text" id="filename" name="filename" required readonly>
+                <div class="preview-container">
+                    <img id="analysisImage" class="preview-image" src="" alt="待分析图片">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="description">图片描述（可选）：</label>
+                <textarea id="description" name="description" rows="3" placeholder="请描述图片中显示的股票代码、时间段、技术指标等信息"></textarea>
+            </div>
+            <div class="form-group">
+                <label for="provider">选择AI提供商：</label>
+                <select id="provider" name="provider">
+                    <option value="mock">Mock（模拟）</option>
+                    <option value="siliconflow">SiliconFlow (硅流)</option>
+                    <option value="aliyun" selected>Aliyun (通义千问)</option>
+                </select>
+            </div>
+            <div class="form-group" id="modelGroup">
+                <label for="model">选择模型：</label>
+                <select id="model" name="model">
+                    <!-- 选项会根据提供商动态加载 -->
+                </select>
+                <div style="margin-top: 5px; color: #666; font-size: 0.9em;">
+                    推荐使用 VL Max 最新版，拥有更强的图像识别和分析能力
+                </div>
+            </div>
+            <div class="form-group">
+                <div style="display: flex; align-items: center;">
+                    <input type="checkbox" id="useShortPrompt" name="useShortPrompt" style="width: auto; margin-right: 10px;">
+                    <label for="useShortPrompt" style="display: inline; font-weight: normal;">使用精简提示词（推荐，减少token消耗）</label>
+                </div>
+                <div style="margin-top: 5px; color: #666; font-size: 0.9em;">
+                    开启此选项将移除冗长的股市知识库内容，仅保留必要的分析指令，提高分析速度和效率
+                </div>
+            </div>
+            <div class="form-group">
+                <div style="display: flex; align-items: center;">
+                    <input type="checkbox" id="useOssUpload" name="useOssUpload" checked style="width: auto; margin-right: 10px;">
+                    <label for="useOssUpload" style="display: inline; font-weight: normal;">使用OSS远程上传（推荐，提高兼容性）</label>
+                </div>
+                <div style="margin-top: 5px; color: #666; font-size: 0.9em;">
+                    开启此选项将图片上传至阿里云OSS，使用URL方式调用API；关闭则使用Base64本地编码，可能不适用于某些模型
+                </div>
+            </div>
+            <div class="verification-section" id="verificationSection">
+                <div>正在验证图片可访问性... <span id="verificationStatus"></span></div>
+                <div id="verificationDetails"></div>
+            </div>
+            <button type="submit" id="analyzeButton">开始分析</button>
+        </form>
+        <div id="loading">正在分析图片，请稍候...</div>
+        <div id="error"></div>
+        <div id="result"></div>
+    </div>
+    
+    <div class="links">
+        <a href="/">返回首页</a>
+        <a href="/simple">简易版</a>
+        <a href="/debug">调试页面</a>
+    </div>
+
+    <script>
+        // 模型映射
+        const providerModels = {
+            mock: ['mock-model'],
+            siliconflow: ['Pro/deepseek-ai/DeepSeek-R1'],
+            aliyun: ['qwen-vl-plus', 'qwen-plus', 'qvq-72b-preview', 'qwen-vl-max', 'qwen-vl-max-latest', 'qwq-32b', 'qwq-plus']
+        };
+        
+        // 预览图片
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const previewImage = document.getElementById('previewImage');
+                    previewImage.src = e.target.result;
+                    previewImage.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // 根据提供商更新模型选项
+        document.getElementById('provider').addEventListener('change', function() {
+            updateModelOptions();
+        });
+        
+        function updateModelOptions() {
+            const provider = document.getElementById('provider').value;
+            const modelSelect = document.getElementById('model');
+            
+            // 清空现有选项
+            modelSelect.innerHTML = '';
+            
+            // 添加新选项
+            const models = providerModels[provider] || [];
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = modelNameToDisplay(model);
+                
+                // 默认选择最好的模型
+                if (provider === 'aliyun' && model === 'qwen-vl-max-latest') {
+                    option.selected = true;
+                }
+                
+                modelSelect.appendChild(option);
+            });
+        }
+        
+        // 将模型名称转换为显示名称
+        function modelNameToDisplay(model) {
+            switch (model) {
+                case 'Pro/deepseek-ai/DeepSeek-R1':
+                    return 'DeepSeek-R1 (视觉语言)';
+                case 'qwen-vl-plus':
+                    return '通义千问 VL Plus (视觉)';
+                case 'qwen-plus':
+                    return '通义千问 Plus (文本)';
+                case 'qvq-72b-preview':
+                    return '通义千问 72B 预览版 (高级)';
+                case 'qwen-vl-max':
+                    return '通义千问 VL Max (高级视觉) 🔥';
+                case 'qwen-vl-max-latest':
+                    return '通义千问 VL Max 最新版 (推荐) 🔥';
+                case 'qwq-32b':
+                    return '通义千问 32B';
+                case 'qwq-plus':
+                    return '通义千问 Plus';
+                default:
+                    return model;
+            }
+        }
+        
+        // 初始化页面时更新模型选项
+        document.addEventListener('DOMContentLoaded', function() {
+            updateModelOptions();
+        });
+        
+        // 文件上传处理
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const uploadResult = document.getElementById('uploadResult');
+            
+            if (!fileInput.files.length) {
+                uploadResult.innerHTML = '<div style="color: red;">请选择文件</div>';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            uploadResult.innerHTML = '<div>上传中，请稍候...</div>';
+            
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('上传失败');
+                }
+                return response.json();
+            })
+            .then(data => {
+                uploadResult.innerHTML = '<div style="color: green;">上传成功</div>';
+                
+                // 设置分析表单数据
+                document.getElementById('filename').value = data.filename;
+                const analysisImage = document.getElementById('analysisImage');
+                analysisImage.src = data.path;
+                analysisImage.style.display = 'block';
+                
+                // 聚焦到分析表单
+                document.getElementById('description').focus();
+            })
+            .catch(error => {
+                uploadResult.innerHTML = `<div style="color: red;">上传失败: ${error.message}</div>`;
+            });
+        });
+        
+        // 验证图片URL
+        function verifyImageUrl(url) {
+            const verificationSection = document.getElementById('verificationSection');
+            const verificationStatus = document.getElementById('verificationStatus');
+            const verificationDetails = document.getElementById('verificationDetails');
+            
+            verificationSection.style.display = 'block';
+            verificationStatus.innerHTML = '<span class="status-badge" style="background-color: #2196f3;">检查中</span>';
+            verificationDetails.textContent = `正在验证URL: ${url}`;
+            
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                
+                img.onload = function() {
+                    verificationStatus.innerHTML = '<span class="status-badge status-success">可访问</span>';
+                    verificationDetails.textContent = `图片验证成功: ${img.width}x${img.height}`;
+                    resolve(true);
+                };
+                
+                img.onerror = function() {
+                    verificationStatus.innerHTML = '<span class="status-badge status-error">无法访问</span>';
+                    verificationDetails.textContent = `警告: 图片无法从浏览器直接访问，AI可能也无法访问`;
+                    resolve(false);
+                };
+                
+                img.src = url;
+                
+                // 超时处理
+                setTimeout(() => {
+                    if (!img.complete) {
+                        verificationStatus.innerHTML = '<span class="status-badge status-warning">超时</span>';
+                        verificationDetails.textContent = `图片加载超时，可能无法被正常访问`;
+                        resolve(false);
+                    }
+                }, 5000);
+            });
+        }
+        
+        // 分析处理
+        document.getElementById('analyzeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const filename = document.getElementById('filename').value;
+            const description = document.getElementById('description').value;
+            const provider = document.getElementById('provider').value;
+            const model = document.getElementById('model').value;
+            
+            if (!filename) {
+                document.getElementById('error').textContent = '请先上传图片文件';
+                document.getElementById('error').style.display = 'block';
+                return;
+            }
+            
+            // 先验证图片URL
+            const imageUrl = document.getElementById('analysisImage').src;
+            await verifyImageUrl(imageUrl);
+            
+            // 显示加载状态
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('analyzeButton').disabled = true;
+            
+            // 准备数据
+            const requestData = {
+                filename: filename,
+                description: description,
+                provider: provider,
+                model: model,
+                useShortPrompt: document.getElementById('useShortPrompt').checked,
+                useOssUpload: document.getElementById('useOssUpload').checked
+            };
+            
+            // 输出请求信息
+            console.log('分析请求参数:', requestData);
+            
+            // 发送分析请求
+            fetch('/api/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || '分析请求失败');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.error) {
+                    document.getElementById('error').textContent = data.error;
+                    document.getElementById('error').style.display = 'block';
+                } else {
+                    const result = document.getElementById('result');
+                    result.textContent = data.analysis;
+                    result.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').textContent = error.message;
+                document.getElementById('error').style.display = 'block';
+            })
+            .finally(() => {
+                document.getElementById('analyzeButton').disabled = false;
+            });
+        });
+    </script>
+</body>
+</html> 
