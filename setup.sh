@@ -12,6 +12,51 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 检查操作系统类型
+OS="$(uname -s)"
+echo "检测到操作系统: $OS"
+
+# 安装TA-Lib系统依赖
+echo "正在安装TA-Lib系统依赖..."
+if [ "$OS" = "Darwin" ]; then
+    # macOS
+    if ! command -v brew &> /dev/null; then
+        echo "错误: 未找到Homebrew，请先安装Homebrew"
+        echo "安装命令: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        exit 1
+    fi
+    
+    echo "使用Homebrew安装TA-Lib..."
+    brew install ta-lib || {
+        echo "错误: 安装TA-Lib失败"
+        exit 1
+    }
+elif [ "$OS" = "Linux" ]; then
+    # Linux
+    if command -v apt-get &> /dev/null; then
+        # Debian/Ubuntu
+        echo "使用apt安装TA-Lib..."
+        sudo apt-get update
+        sudo apt-get install -y ta-lib || {
+            echo "错误: 安装TA-Lib失败"
+            exit 1
+        }
+    elif command -v yum &> /dev/null; then
+        # CentOS/RHEL
+        echo "使用yum安装TA-Lib..."
+        sudo yum install -y ta-lib || {
+            echo "错误: 安装TA-Lib失败"
+            exit 1
+        }
+    else
+        echo "错误: 不支持的Linux发行版，请手动安装TA-Lib"
+        exit 1
+    fi
+else
+    echo "错误: 不支持的操作系统: $OS"
+    exit 1
+fi
+
 # 创建虚拟环境
 echo "正在创建虚拟环境..."
 python3 -m venv venv
@@ -46,11 +91,12 @@ else
     echo "成功安装和升级所需库"
 fi
 
-# 创建上传目录
-echo "正在创建上传目录..."
+# 创建必要的目录
+echo "正在创建必要的目录..."
 mkdir -p app/uploads
+mkdir -p app/static/images/charts
 if [ $? -ne 0 ]; then
-    echo "警告: 创建上传目录失败，可能会影响图片上传功能"
+    echo "警告: 创建目录失败，可能会影响某些功能"
 fi
 
 # 创建启动脚本

@@ -435,4 +435,46 @@ def get_stock_list():
     
     except Exception as e:
         logging.error(f"获取股票列表出错: {e}")
-        return jsonify({'error': str(e)}), 500 
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/stock/kline', methods=['GET', 'POST'])
+def stock_kline():
+    """股票K线图接口"""
+    if request.method == 'POST':
+        try:
+            # 获取请求参数
+            symbol = request.form.get('symbol')
+            period = request.form.get('period', 'daily')
+            start_date = request.form.get('start_date')
+            end_date = request.form.get('end_date')
+            adjust = request.form.get('adjust', 'qfq')
+            indicators = request.form.getlist('indicators')  # 获取选中的技术指标
+            
+            if not symbol:
+                return jsonify({'error': '请输入股票代码'})
+            
+            # 获取股票数据
+            df = akshare_client.get_stock_data(symbol, period, start_date, end_date, adjust)
+            if df is None:
+                return jsonify({'error': '获取股票数据失败'})
+            
+            # 生成K线图
+            title = f"{symbol} K线图"
+            chart_path = akshare_client.generate_kline_chart(
+                df, title=title, show_volume=True,
+                show_indicators=indicators  # 传递技术指标参数
+            )
+            
+            if chart_path is None:
+                return jsonify({'error': '生成K线图失败'})
+            
+            # 返回图片URL
+            image_url = f"/static/images/charts/{os.path.basename(chart_path)}"
+            return jsonify({'image_url': image_url})
+            
+        except Exception as e:
+            logging.error(f"处理K线图请求出错: {e}")
+            return jsonify({'error': str(e)})
+    
+    # GET请求返回页面
+    return send_from_directory('templates', 'akshare.html') 

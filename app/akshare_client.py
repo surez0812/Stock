@@ -9,6 +9,7 @@ import mplfinance as mpf
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
+from .technical_indicators import TechnicalIndicators
 matplotlib.use('Agg')  # 使用非交互式后端，避免需要图形界面
 
 # 配置中文字体支持
@@ -35,6 +36,9 @@ class AKShareClient:
         
         # 检查是否可以使用中文字体
         self._check_chinese_font()
+        
+        # 初始化技术指标计算器
+        self.indicators = TechnicalIndicators()
     
     def _check_chinese_font(self):
         """检查是否有可用的中文字体，如果没有则尝试注册系统中的中文字体"""
@@ -155,7 +159,8 @@ class AKShareClient:
         return df
     
     def generate_kline_chart(self, df, title=None, days=60, show_volume=True, 
-                            mav=(5, 20), style='binance', filename=None):
+                            mav=(5, 20), style='binance', filename=None,
+                            show_indicators=None):
         """生成K线图
         
         Args:
@@ -166,55 +171,118 @@ class AKShareClient:
             mav: 移动平均线周期，如(5,20)表示5日、20日均线
             style: 图表样式
             filename: 保存的文件名，默认使用随机名称
+            show_indicators: 要显示的技术指标列表，如 ['MACD', 'RSI', 'BOLL']
             
         Returns:
             生成的图表文件路径
         """
-        # 确保有足够的数据
-        if df is None or len(df) == 0:
-            return None
-        
-        # 只取最近N天的数据
-        if len(df) > days:
-            plot_data = df[-days:]
-        else:
-            plot_data = df
-        
-        # 设置文件名
-        if filename is None:
-            # 使用时间戳生成唯一文件名
-            timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-            filename = f"kline_{timestamp}.png"
-        
-        file_path = os.path.join(self.image_save_path, filename)
-        
-        # 设置图表样式
-        s = mpf.make_mpf_style(
-            base_mpf_style=style,
-            marketcolors=mpf.make_marketcolors(
-                up='red',         # 上涨为红色 
-                down='green',     # 下跌为绿色，符合中国股市习惯
-                edge='inherit',
-                wick='inherit',
-                volume='inherit'
-            )
-        )
-        
-        # 创建自定义字体配置
         try:
-            # 创建图表并返回对象而不是直接显示
-            fig, axes = mpf.plot(
-                plot_data,
-                type='candle',
-                title=title,
-                ylabel='价格',
-                ylabel_lower='成交量',
-                volume=show_volume,
-                mav=mav,
-                style=s,
-                figsize=(12, 8),
-                returnfig=True  # 返回图表对象
+            # 确保有足够的数据
+            if df is None or len(df) == 0:
+                return None
+            
+            # 只取最近N天的数据
+            if len(df) > days:
+                plot_data = df[-days:]
+            else:
+                plot_data = df
+            
+            # 设置文件名
+            if filename is None:
+                # 使用时间戳生成唯一文件名
+                timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+                filename = f"kline_{timestamp}.png"
+            
+            file_path = os.path.join(self.image_save_path, filename)
+            
+            # 设置图表样式
+            s = mpf.make_mpf_style(
+                base_mpf_style=style,
+                marketcolors=mpf.make_marketcolors(
+                    up='red',         # 上涨为红色 
+                    down='green',     # 下跌为绿色，符合中国股市习惯
+                    edge='inherit',
+                    wick='inherit',
+                    volume='inherit'
+                )
             )
+            
+            # 准备附加图表
+            apds = []
+            panel_num = 1  # 从第1个子图开始（主图是0）
+            
+            # 处理技术指标
+            if show_indicators and isinstance(show_indicators, str):
+                # 如果是空字符串，转换为None
+                show_indicators = None if not show_indicators.strip() else show_indicators.split(',')
+            
+            if show_indicators and isinstance(show_indicators, list):
+                # 计算技术指标
+                indicators_df = TechnicalIndicators.calculate_all_indicators(plot_data)
+                if indicators_df is not None:
+                    if 'MACD' in show_indicators:
+                        # 添加MACD
+                        if all(x in indicators_df.columns for x in ['MACD', 'Signal', 'Histogram']):
+                            apds.extend([
+                                mpf.make_addplot(indicators_df['MACD'], panel=panel_num, color='blue', 
+                                               ylabel='MACD'),
+                                mpf.make_addplot(indicators_df['Signal'], panel=panel_num, color='orange'),
+                                mpf.make_addplot(indicators_df['Histogram'], panel=panel_num, type='bar', 
+                                               color='gray')
+                            ])
+                            panel_num += 1
+                    
+                    if 'RSI' in show_indicators:
+                        # 添加RSI
+                        if 'RSI' in indicators_df.columns:
+                            apds.append(
+                                mpf.make_addplot(indicators_df['RSI'], panel=panel_num, color='purple', 
+                                               ylabel='RSI')
+                            )
+                            panel_num += 1
+                    
+                    if 'BOLL' in show_indicators:
+                        # 添加布林带
+                        if all(x in indicators_df.columns for x in ['BB_Upper', 'BB_Middle', 'BB_Lower']):
+                            apds.extend([
+                                mpf.make_addplot(indicators_df['BB_Upper'], color='gray'),
+                                mpf.make_addplot(indicators_df['BB_Middle'], color='blue'),
+                                mpf.make_addplot(indicators_df['BB_Lower'], color='gray')
+                            ])
+                    
+                    if 'KDJ' in show_indicators:
+                        # 添加KDJ
+                        if all(x in indicators_df.columns for x in ['K', 'D', 'J']):
+                            apds.extend([
+                                mpf.make_addplot(indicators_df['K'], panel=panel_num, color='blue', 
+                                               ylabel='KDJ'),
+                                mpf.make_addplot(indicators_df['D'], panel=panel_num, color='orange'),
+                                mpf.make_addplot(indicators_df['J'], panel=panel_num, color='purple')
+                            ])
+                            panel_num += 1
+            
+            # 计算图表高度
+            num_panels = len([ap for ap in apds if isinstance(ap, dict) and 'panel' in ap]) + 1
+            fig_height = 6 + (num_panels * 2)  # 基础高度6，每个子图加2
+            
+            # 创建图表
+            kwargs = {
+                'type': 'candle',
+                'title': title,
+                'ylabel': '价格',
+                'ylabel_lower': '成交量',
+                'volume': show_volume,
+                'mav': mav,
+                'style': s,
+                'figsize': (12, fig_height),
+                'returnfig': True
+            }
+            
+            # 只有当apds非空时才添加addplot参数
+            if apds:
+                kwargs['addplot'] = apds
+            
+            fig, axes = mpf.plot(plot_data, **kwargs)
             
             # 获取标题对象并设置中文字体
             if title and len(fig.texts) > 0:
@@ -231,13 +299,14 @@ class AKShareClient:
                         ax.xaxis.label.set_fontproperties(FontProperties(family=plt.rcParams['font.sans-serif'][0]))
             
             # 保存图表
-            fig.savefig(file_path, dpi=100)
+            fig.savefig(file_path, dpi=100, bbox_inches='tight')
             plt.close(fig)  # 关闭图表释放内存
+            
+            return file_path
+            
         except Exception as e:
             print(f"生成K线图出错: {e}")
             return None
-        
-        return file_path
     
     def get_stock_list(self, market='A股'):
         """获取股票列表

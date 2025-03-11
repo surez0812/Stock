@@ -166,6 +166,35 @@
                             <label for="showVolume" class="form-check-label">显示成交量</label>
                         </div>
 
+                        <div class="form-group">
+                            <label for="adjust">复权方式：</label>
+                            <select class="form-control" id="adjust" name="adjust">
+                                <option value="qfq">前复权</option>
+                                <option value="hfq">后复权</option>
+                                <option value="none">不复权</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>技术指标：</label>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="macd" name="indicators" value="MACD">
+                                <label class="form-check-label" for="macd">MACD</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="rsi" name="indicators" value="RSI">
+                                <label class="form-check-label" for="rsi">RSI</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="boll" name="indicators" value="BOLL">
+                                <label class="form-check-label" for="boll">布林带</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="kdj" name="indicators" value="KDJ">
+                                <label class="form-check-label" for="kdj">KDJ</label>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary">生成K线图</button>
                     </form>
 
@@ -273,6 +302,11 @@
             const days = document.getElementById('dayCount').value;
             const mav = document.getElementById('mavSetting').value;
             const showVolume = document.getElementById('showVolume').checked;
+            const adjust = document.getElementById('adjust').value;
+            
+            // 获取选中的技术指标
+            const indicators = document.querySelectorAll('input[name="indicators"]:checked');
+            const selectedIndicators = Array.from(indicators).map(input => input.value);
             
             // 显示加载状态
             document.getElementById('loading').style.display = 'block';
@@ -282,7 +316,7 @@
             document.getElementById('dataTableContainer').innerHTML = '';
             
             // 构建请求URL
-            const chartUrl = `/api/stock/chart?symbol=${symbol}&days=${days}&mav=${mav}&volume=${showVolume}`;
+            const chartUrl = `/api/stock/chart?symbol=${symbol}&days=${days}&mav=${mav}&volume=${showVolume}&adjust=${adjust}&indicators=${selectedIndicators.join(',')}`;
             
             // 发送请求生成K线图
             fetch(chartUrl)
@@ -441,6 +475,23 @@
             } else {
                 return volume.toString();
             }
+        }
+
+        function getFormData() {
+            const formData = new FormData();
+            formData.append('symbol', document.getElementById('stockSymbol').value);
+            formData.append('period', document.getElementById('dayCount').value);
+            formData.append('start_date', document.getElementById('start_date').value);
+            formData.append('end_date', document.getElementById('end_date').value);
+            formData.append('adjust', document.getElementById('adjust').value);
+            
+            // 获取选中的技术指标
+            const indicators = document.querySelectorAll('input[name="indicators"]:checked');
+            indicators.forEach(indicator => {
+                formData.append('indicators', indicator.value);
+            });
+            
+            return formData;
         }
     </script>
 </body>
