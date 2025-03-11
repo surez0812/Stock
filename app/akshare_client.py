@@ -7,7 +7,18 @@ import pandas as pd
 import akshare as ak
 import mplfinance as mpf
 import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
 matplotlib.use('Agg')  # 使用非交互式后端，避免需要图形界面
+
+# 配置中文字体支持
+try:
+    # 尝试设置中文字体
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans', 'Microsoft YaHei', 'SimSun', 'sans-serif']
+    # 解决负号显示问题
+    plt.rcParams['axes.unicode_minus'] = False
+except Exception as e:
+    print(f"设置中文字体失败: {e}")
 
 class AKShareClient:
     """AKShare数据获取和处理客户端"""
@@ -21,7 +32,47 @@ class AKShareClient:
         self.image_save_path = image_save_path
         # 确保保存路径存在
         os.makedirs(image_save_path, exist_ok=True)
+        
+        # 检查是否可以使用中文字体
+        self._check_chinese_font()
     
+    def _check_chinese_font(self):
+        """检查是否有可用的中文字体，如果没有则尝试注册系统中的中文字体"""
+        try:
+            # 常见的中文字体路径（Windows和Mac路径）
+            font_paths = [
+                # Windows 字体
+                'C:/Windows/Fonts/simhei.ttf',       # 黑体
+                'C:/Windows/Fonts/simsun.ttc',       # 宋体
+                'C:/Windows/Fonts/msyh.ttf',         # 微软雅黑
+                # macOS 字体
+                '/System/Library/Fonts/PingFang.ttc',  # 苹方
+                '/Library/Fonts/Arial Unicode.ttf',     # Arial Unicode
+                '/System/Library/Fonts/STHeiti Light.ttc', # 华文黑体
+                # 通用预期位置
+                '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf'  # Linux Droid
+            ]
+            
+            # 尝试注册字体
+            font_added = False
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    try:
+                        matplotlib.font_manager.fontManager.addfont(font_path)
+                        print(f"成功添加中文字体: {font_path}")
+                        font_added = True
+                        # 更新字体缓存
+                        if hasattr(matplotlib.font_manager, '_rebuild'):
+                            matplotlib.font_manager._rebuild()
+                        break
+                    except Exception as e:
+                        print(f"添加字体 {font_path} 失败: {e}")
+            
+            if not font_added:
+                print("警告: 未能添加任何中文字体，K线图可能出现中文乱码")
+        except Exception as e:
+            print(f"检查中文字体失败: {e}")
+
     def get_stock_data(self, symbol, period='daily', start_date=None, end_date=None, adjust='qfq'):
         """获取股票数据
         
@@ -149,22 +200,42 @@ class AKShareClient:
             )
         )
         
-        # 生成K线图
-        fig, axes = mpf.plot(
-            plot_data,
-            type='candle',
-            title=title,
-            ylabel='价格',
-            ylabel_lower='成交量',
-            volume=show_volume,
-            mav=mav,
-            style=s,
-            figsize=(12, 8),
-            returnfig=True
-        )
-        
-        # 保存图表
-        fig.savefig(file_path, dpi=100)
+        # 创建自定义字体配置
+        try:
+            # 创建图表并返回对象而不是直接显示
+            fig, axes = mpf.plot(
+                plot_data,
+                type='candle',
+                title=title,
+                ylabel='价格',
+                ylabel_lower='成交量',
+                volume=show_volume,
+                mav=mav,
+                style=s,
+                figsize=(12, 8),
+                returnfig=True  # 返回图表对象
+            )
+            
+            # 获取标题对象并设置中文字体
+            if title and len(fig.texts) > 0:
+                title_obj = fig.texts[0]
+                title_obj.set_fontproperties(FontProperties(family=plt.rcParams['font.sans-serif'][0]))
+            
+            # 获取并设置Y轴标签的字体
+            for ax in axes:
+                if ax:
+                    # 设置轴标签的中文字体
+                    if ax.yaxis.label.get_text():
+                        ax.yaxis.label.set_fontproperties(FontProperties(family=plt.rcParams['font.sans-serif'][0]))
+                    if hasattr(ax, 'xaxis') and ax.xaxis.label.get_text():
+                        ax.xaxis.label.set_fontproperties(FontProperties(family=plt.rcParams['font.sans-serif'][0]))
+            
+            # 保存图表
+            fig.savefig(file_path, dpi=100)
+            plt.close(fig)  # 关闭图表释放内存
+        except Exception as e:
+            print(f"生成K线图出错: {e}")
+            return None
         
         return file_path
     
