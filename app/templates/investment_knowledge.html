@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股市投资知识 - 股市分析工具</title>
+    <!-- 引入样式 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        body {
+            font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .header {
+            background-color: #007bff;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px 0;
+            margin-top: 30px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        .markdown-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .nav-link {
+            color: #007bff;
+            font-weight: 500;
+        }
+        .nav-link:hover {
+            color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>股市投资知识</h1>
+            <p>全面的股市投资基础知识与策略</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-12">
+                <nav>
+                    <ul class="nav">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/">首页</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link active" href="/investment-knowledge">股市投资知识</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/akshare">AKShare 数据</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="markdown-content" id="markdownContent">
+                    <!-- 这里将通过JavaScript加载Markdown内容 -->
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <p>正在加载内容...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div class="container">
+            <p>股市分析工具 &copy; 2024</p>
+        </div>
+    </div>
+
+    <!-- 引入脚本 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 加载Markdown内容
+            fetch('/api/markdown')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.markdown) {
+                        document.getElementById('markdownContent').innerHTML = marked.parse(data.markdown);
+                    } else {
+                        document.getElementById('markdownContent').innerHTML = '<div class="alert alert-danger">无法加载内容</div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('markdownContent').innerHTML = '<div class="alert alert-danger">加载内容出错</div>';
+                });
+        });
+    </script>
+</body>
+</html> 

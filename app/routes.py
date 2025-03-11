@@ -105,6 +105,16 @@ def generate_short_prompt(image_description=''):
 def index():
     return send_from_directory('templates', 'index.html')
 
+@main.route('/investment-knowledge')
+def investment_knowledge():
+    """股市投资知识页面"""
+    return send_from_directory('templates', 'investment_knowledge.html')
+
+@main.route('/akshare')
+def akshare():
+    """AKShare数据页面"""
+    return send_from_directory('templates', 'akshare.html')
+
 @main.route('/debug')
 def debug():
     """调试页面"""

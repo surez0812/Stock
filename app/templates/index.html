@@ -168,15 +168,21 @@
     </div>
 
     <div class="container">
-        <!-- 知识库部分 -->
-        <div class="card">
-            <div class="card-header">
-                <h2>股市知识库</h2>
-            </div>
-            <div class="card-body">
-                <div id="knowledge-content" class="markdown-container">
-                    <div class="loading">正在加载内容...</div>
-                </div>
+        <div class="row mb-4">
+            <div class="col-12">
+                <nav>
+                    <ul class="nav">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="/">首页</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/investment-knowledge">股市投资知识</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/akshare">AKShare 数据</a>
+                        </li>
+                    </ul>
+                </nav>
             </div>
         </div>
 
@@ -286,31 +292,9 @@
         
         // 页面加载时执行
         document.addEventListener('DOMContentLoaded', function() {
-            // 加载Markdown内容
-            loadMarkdown();
-            
             // 初始化模型选项
             updateModelOptions();
         });
-        
-        // 加载Markdown内容
-        function loadMarkdown() {
-            const knowledgeContent = document.getElementById('knowledge-content');
-            
-            fetch('/api/markdown')
-                .then(response => response.json())
-                .then(data => {
-                    if (data && data.html) {
-                        knowledgeContent.innerHTML = data.html;
-                    } else {
-                        throw new Error('加载失败');
-                    }
-                })
-                .catch(error => {
-                    console.error('加载Markdown失败:', error);
-                    knowledgeContent.innerHTML = '<div class="error">加载知识库内容失败，请刷新页面重试</div>';
-                });
-        }
         
         // 预览图片
         document.getElementById('fileInput').addEventListener('change', function(e) {
