@@ -1,5 +1,6 @@
 flask==2.3.2
 flask-cors==4.0.0
+flask-login==0.6.3  # 用户会话管理
 markdown==3.5.1
 openai==1.14.0
 python-dotenv==1.0.0

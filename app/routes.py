@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_from_directory, current_app
+from flask import Blueprint, request, jsonify, send_from_directory, current_app, render_template
 import os
 import uuid
 import markdown
@@ -132,6 +132,15 @@ def simple():
 def test():
     """测试页面"""
     return send_from_directory('templates', 'test.html')
+
+@main.route('/text2video')
+def text2video():
+    """文本生成视频页面"""
+    return render_template('text2video.html')
+
+@main.route('/image2video')
+def image2video():
+    return render_template('image2video.html')
 
 @main.route('/api/markdown')
 def get_markdown():

@@ -4,6 +4,7 @@ import uuid
 import oss2
 from datetime import datetime
 import requests
+from urllib.parse import urlparse
 
 class OSSClient:
     """阿里云OSS客户端，用于上传文件到阿里云OSS存储"""
@@ -119,6 +120,63 @@ class OSSClient:
             logging.warning(error_msg)
             return False, error_msg
     
+    def get_signed_url(self, object_key, expires=3600):
+        """
+        获取文件的签名URL
+        
+        Args:
+            object_key: 对象名称或完整路径
+            expires: 签名有效期（秒）
+            
+        Returns:
+            (success, url): 是否成功，如果成功则包含签名URL
+        """
+        if not self.initialized:
+            logging.error("OSS客户端未初始化，无法生成签名URL")
+            return False, None
+            
+        try:
+            # 检查对象键是否包含完整URL或路径
+            if object_key.startswith('http'):
+                # 如果是完整URL，提取路径部分
+                parsed_url = urlparse(object_key)
+                path_parts = parsed_url.path.strip('/').split('/')
+                # 跳过第一个部分（通常是bucket名称）
+                if len(path_parts) > 1 and path_parts[0] == self.bucket_name:
+                    object_key = '/'.join(path_parts[1:])
+                else:
+                    object_key = parsed_url.path.strip('/')
+            
+            # 进一步处理对象键
+            if not object_key.startswith('stock-images/'):
+                # 如果是完整文件名，提取最后的部分
+                file_name = os.path.basename(object_key)
+                # 如果路径已包含日期格式（如20250312），保留该结构
+                if '/20' in object_key and len(object_key.split('/')) > 1:
+                    date_part = object_key.split('/')[0]
+                    object_name = f"stock-images/{date_part}/{file_name}"
+                else:
+                    # 获取当前日期
+                    date_prefix = datetime.now().strftime('%Y%m%d')
+                    # 构建对象名
+                    object_name = f"stock-images/{date_prefix}/{file_name}"
+            else:
+                # 直接使用提供的对象键
+                object_name = object_key
+                
+            logging.info(f"为对象生成签名URL: {object_name}，有效期: {expires}秒")
+            
+            # 生成签名URL
+            signed_url = self.bucket.sign_url('GET', object_name, expires)
+            logging.info(f"生成的签名URL: {signed_url}")
+            
+            return True, signed_url
+            
+        except Exception as e:
+            error_msg = f"生成签名URL失败: {str(e)}"
+            logging.error(error_msg)
+            return False, None
+    
     def upload_file(self, file_path, content_type='image/jpeg'):
         """
         上传文件到OSS
@@ -199,26 +257,8 @@ class OSSClient:
                 except Exception as e:
                     logging.warning(f"获取对象ACL失败: {str(e)}")
                 
-                # 验证是否可以访问此URL
-                is_accessible, error = self.test_url_accessibility(url)
-                if not is_accessible:
-                    logging.warning(f"OSS URL可能无法被阿里云AI服务访问: {error}")
-                    logging.info("尝试修复URL访问问题...")
-                    
-                    # 生成带有时间戳的签名URL，有效期为1小时
-                    try:
-                        signed_url = self.bucket.sign_url('GET', object_name, 3600)
-                        logging.info(f"生成带签名的临时URL: {signed_url}")
-                        # 测试签名URL
-                        is_signed_accessible, error = self.test_url_accessibility(signed_url)
-                        if is_signed_accessible:
-                            logging.info("签名URL可以访问，将使用这个URL")
-                            return True, signed_url
-                        else:
-                            logging.warning(f"签名URL也无法访问: {error}")
-                    except Exception as e:
-                        logging.error(f"生成签名URL失败: {str(e)}")
-                
+                # 验证是否可以访问此URL（直接返回成功和URL，URL验证会在后续步骤处理）
+                # 不阻止返回，直接返回URL，让调用者决定是否需要签名URL
                 return True, url
                 
             except oss2.exceptions.ServerError as e:

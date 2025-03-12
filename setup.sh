@@ -2,15 +2,44 @@
 
 # 股市分析工具安装脚本
 
-echo "=== 开始安装股市分析工具 ==="
-echo "正在检查Python版本..."
+echo "====== 开始设置股市分析工具环境 ======"
 
 # 检查Python版本
-python3 --version > /dev/null 2>&1
+python3 --version
 if [ $? -ne 0 ]; then
-    echo "错误: 未找到Python3，请安装Python 3.8或更高版本"
-    exit 1
+  echo "请先安装Python 3"
+  exit 1
 fi
+
+# 创建虚拟环境（如果不存在）
+if [ ! -d "venv" ]; then
+  echo "正在创建虚拟环境..."
+  python3 -m venv venv
+  if [ $? -ne 0 ]; then
+    echo "创建虚拟环境失败，请安装venv模块"
+    exit 1
+  fi
+else
+  echo "虚拟环境已存在"
+fi
+
+# 激活虚拟环境
+echo "激活虚拟环境..."
+source venv/bin/activate
+
+# 安装依赖
+echo "安装项目依赖..."
+pip install -r requirements.txt
+
+# TA-Lib可能需要特殊处理
+echo "注意：如果TA-Lib安装失败，你可能需要先安装系统依赖"
+echo "MacOS: brew install ta-lib"
+echo "Ubuntu: apt-get install build-essential ta-lib"
+echo "CentOS: yum install ta-lib-devel"
+
+echo "====== 环境设置完成 ======"
+echo "现在你可以运行 ./start.sh 启动应用"
+echo ""
 
 # 检查操作系统类型
 OS="$(uname -s)"
@@ -54,30 +83,6 @@ elif [ "$OS" = "Linux" ]; then
     fi
 else
     echo "错误: 不支持的操作系统: $OS"
-    exit 1
-fi
-
-# 创建虚拟环境
-echo "正在创建虚拟环境..."
-python3 -m venv venv
-if [ $? -ne 0 ]; then
-    echo "错误: 创建虚拟环境失败，请确保已安装python3-venv"
-    exit 1
-fi
-
-# 激活虚拟环境
-echo "正在激活虚拟环境..."
-source venv/bin/activate
-
-# 升级pip
-echo "正在升级pip..."
-pip install --upgrade pip
-
-# 安装依赖
-echo "正在安装依赖包..."
-pip install -r requirements.txt
-if [ $? -ne 0 ]; then
-    echo "错误: 安装依赖失败"
     exit 1
 fi
 

@@ -25,7 +25,11 @@ def create_app():
     
     # 注册蓝图
     from app.routes import main
+    from app.text2video import text2video_bp
+    from app.image2video import image2video_bp
     app.register_blueprint(main)
+    app.register_blueprint(text2video_bp)
+    app.register_blueprint(image2video_bp)
     
     # 启动日志
     app.logger.info("股市分析应用已启动")
