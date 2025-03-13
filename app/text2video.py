@@ -4,7 +4,7 @@ import time
 import logging
 import uuid
 import requests
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv
 from http import HTTPStatus
 # 导入 DashScope SDK
@@ -454,4 +454,54 @@ def check_status(task_id):
                 'task_id': task_id,
                 'task_status': 'UNKNOWN'
             }
-        }) 
+        })
+
+@text2video_bp.route('/api/video_proxy', methods=['GET'])
+def video_proxy():
+    """
+    视频代理接口，用于解决CORS问题
+    接收视频URL作为查询参数，然后代理请求该URL并将响应流式传输回客户端
+    """
+    video_url = request.args.get('url')
+    if not video_url:
+        return jsonify({'error': '缺少视频URL参数'}), 400
+    
+    logger.info(f"视频代理请求: {video_url}")
+    
+    try:
+        # 发送请求到视频URL，并使用stream=True来流式传输响应
+        response = requests.get(video_url, stream=True, timeout=30)
+        
+        if response.status_code != 200 and response.status_code != 206:
+            logger.error(f"视频代理请求失败: 状态码 {response.status_code}")
+            return jsonify({'error': f'无法获取视频: HTTP {response.status_code}'}), 500
+        
+        # 创建一个生成器，用于流式传输响应内容
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                yield chunk
+        
+        # 创建流式响应
+        headers = {
+            'Content-Type': response.headers.get('Content-Type', 'video/mp4'),
+            'Content-Length': response.headers.get('Content-Length', ''),
+            'Accept-Ranges': response.headers.get('Accept-Ranges', 'bytes'),
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*'  # 允许任何来源访问
+        }
+        
+        # 如果有Range头，需要传递给客户端
+        if 'Content-Range' in response.headers:
+            headers['Content-Range'] = response.headers['Content-Range']
+        
+        logger.info(f"视频代理响应: 状态码 {response.status_code}，内容类型 {headers['Content-Type']}")
+        
+        return Response(
+            stream_with_context(generate()),
+            status=response.status_code,
+            headers=headers
+        )
+        
+    except Exception as e:
+        logger.exception(f"视频代理出错: {str(e)}")
+        return jsonify({'error': f'视频代理错误: {str(e)}'}), 500 

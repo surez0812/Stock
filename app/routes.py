@@ -486,4 +486,9 @@ def stock_kline():
             return jsonify({'error': str(e)})
     
     # GET请求返回页面
-    return send_from_directory('templates', 'akshare.html') 
+    return send_from_directory('templates', 'akshare.html')
+
+@main.route('/investment')
+def investment():
+    """投资页面 - 这是investment-knowledge的别名"""
+    return send_from_directory('templates', 'investment_knowledge.html') 
