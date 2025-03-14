@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from http import HTTPStatus
 # 导入 DashScope SDK
 from dashscope import VideoSynthesis
+# 导入数据库操作函数
+from app.db_utils import save_text2video_request, update_text2video_status, get_text2video_history
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -136,6 +138,9 @@ def generate_video():
                     'process_time_formatted': f"{int(current_process_time // 60)}分{int(current_process_time % 60)}秒"
                 }
                 
+                # 将请求信息保存到数据库
+                save_text2video_request(task_id, data)
+                
                 logger.info(f"成功创建任务: task_id={task_id}")
                 return jsonify(response_data)
             else:
@@ -144,21 +149,59 @@ def generate_video():
                 if hasattr(response, 'message'):
                     error_message += f", 错误信息: {response.message}"
                 
-                logger.error(error_message)
-                return jsonify({
+                # 构建错误响应数据
+                error_response_data = {
                     'error': error_message,
                     'status': 'FAILED'
-                }), 500
+                }
+                
+                # 尝试创建一个虚拟任务ID并保存失败记录
+                fail_task_id = f"fail_{uuid.uuid4().hex}"
+                data['error'] = error_message
+                save_text2video_request(fail_task_id, data)
+                update_text2video_status(fail_task_id, 'FAILED', error_response_data)
+                
+                logger.error(error_message)
+                return jsonify(error_response_data), 500
                 
         except Exception as e:
             error_message = f"调用 DashScope API 时出错: {str(e)}"
-            logger.exception(error_message)
-            return jsonify({
+            
+            # 构建错误响应数据
+            error_response_data = {
                 'error': error_message,
                 'status': 'FAILED'
-            }), 500
+            }
+            
+            # 尝试创建一个虚拟任务ID并保存失败记录
+            fail_task_id = f"fail_{uuid.uuid4().hex}"
+            data['error'] = error_message
+            save_text2video_request(fail_task_id, data)
+            update_text2video_status(fail_task_id, 'FAILED', error_response_data)
+            
+            logger.exception(error_message)
+            return jsonify(error_response_data), 500
 
     except Exception as e:
+        error_message = f"生成视频时发生异常: {str(e)}"
+        
+        # 构建错误响应数据
+        error_response_data = {
+            'error': error_message,
+            'status': 'FAILED'
+        }
+        
+        # 尝试创建一个虚拟任务ID并保存失败记录
+        try:
+            fail_task_id = f"fail_{uuid.uuid4().hex}"
+            if request.is_json and request.get_json():
+                data = request.get_json()
+                data['error'] = error_message
+                save_text2video_request(fail_task_id, data)
+                update_text2video_status(fail_task_id, 'FAILED', error_response_data)
+        except:
+            logger.exception("保存失败记录时出错")
+            
         logger.exception("生成视频时发生异常")
         return jsonify({'error': str(e)}), 500
 
@@ -360,17 +403,30 @@ def check_status(task_id):
                     # 检查是否超过最大重试次数
                     if retry_counters[task_id] > MAX_RETRIES:
                         logger.error(f"任务 {task_id} 已重试 {retry_counters[task_id]} 次，仍无法获取视频URL")
+                        
+                        # 更新数据库中的任务状态为失败
+                        error_msg = f'任务成功但无法获取视频URL (已重试 {retry_counters[task_id]} 次)'
+                        response_data['error'] = error_msg
+                        update_text2video_status(task_id, 'FAILED', response_data)
+                        
                         return jsonify({
                             'status': 'FAILED',
-                            'error': f'任务成功但无法获取视频URL (已重试 {retry_counters[task_id]} 次)'
+                            'error': error_msg
                         })
                     
                     # 任务成功但没有URL，可能是API响应结构变化或延迟
                     logger.warning(f"任务成功但暂时没有结果URL，返回PENDING状态 (重试 {retry_counters[task_id]}/{MAX_RETRIES})")
+                    
+                    # 更新数据库中的任务状态
+                    pending_msg = f'任务已完成，正在等待视频URL (重试 {retry_counters[task_id]}/{MAX_RETRIES})'
+                    response_data['message'] = pending_msg
+                    response_data['status'] = 'PENDING'
+                    update_text2video_status(task_id, 'PENDING', response_data)
+                    
                     # 返回PENDING状态而不是FAILED，让前端继续轮询
                     return jsonify({
                         'status': 'PENDING',
-                        'message': f'任务已完成，正在等待视频URL (重试 {retry_counters[task_id]}/{MAX_RETRIES})'
+                        'message': pending_msg
                     })
                 
                 # 成功获取URL，重置计数器
@@ -378,14 +434,18 @@ def check_status(task_id):
                     del retry_counters[task_id]
                 
                 # 计算处理总时间（如果有记录起始时间）
+                process_time = None
                 if task_id in task_status and 'upload_start_time' in task_status[task_id]:
                     upload_start_time = task_status[task_id]['upload_start_time']
-                    total_time = time.time() - upload_start_time
-                    logger.info(f"任务 {task_id} 从提交到完成总耗时: {total_time:.2f}秒")
+                    process_time = time.time() - upload_start_time
+                    logger.info(f"任务 {task_id} 从提交到完成总耗时: {process_time:.2f}秒")
                     
                     # 添加处理时间到响应中
-                    response_data['process_time'] = round(total_time, 2)
-                    response_data['process_time_formatted'] = f"{int(total_time // 60)}分{int(total_time % 60)}秒"
+                    response_data['process_time'] = round(process_time, 2)
+                    response_data['process_time_formatted'] = f"{int(process_time // 60)}分{int(process_time % 60)}秒"
+                
+                # 更新数据库中的任务状态
+                update_text2video_status(task_id, 'SUCCEEDED', response_data, video_url, process_time)
                 
                 logger.info(f"任务 {task_id} 成功完成，视频URL: {video_url}")
                 return jsonify(response_data)
@@ -403,11 +463,17 @@ def check_status(task_id):
                 if task_id in retry_counters:
                     del retry_counters[task_id]
                 
+                # 更新数据库中的任务状态
+                update_text2video_status(task_id, 'FAILED', response_data)
+                
                 logger.error(f"任务 {task_id} 失败: {response_data.get('message', '')}")
                 return jsonify(response_data)
             
             # 任务进行中
             else:
+                # 更新数据库中的任务状态
+                update_text2video_status(task_id, task_status_value, response_data)
+                
                 return jsonify(response_data)
         else:
             # API请求失败
@@ -439,6 +505,9 @@ def check_status(task_id):
                 }
             except Exception as e:
                 logger.warning(f"添加错误信息时出错: {str(e)}")
+            
+            # 更新数据库中的任务状态
+            update_text2video_status(task_id, 'UNKNOWN', response_data)
                 
             logger.error(error_message)
             return jsonify(response_data)
@@ -446,7 +515,8 @@ def check_status(task_id):
     except Exception as e:
         error_message = f"查询任务状态时出错: {str(e)}"
         logger.exception(error_message)
-        return jsonify({
+        
+        response_data = {
             'task_id': task_id,
             'status': 'UNKNOWN',
             'error': error_message,
@@ -454,7 +524,12 @@ def check_status(task_id):
                 'task_id': task_id,
                 'task_status': 'UNKNOWN'
             }
-        })
+        }
+        
+        # 更新数据库中的任务状态
+        update_text2video_status(task_id, 'UNKNOWN', response_data)
+        
+        return jsonify(response_data)
 
 @text2video_bp.route('/api/video_proxy', methods=['GET'])
 def video_proxy():
@@ -504,4 +579,27 @@ def video_proxy():
         
     except Exception as e:
         logger.exception(f"视频代理出错: {str(e)}")
-        return jsonify({'error': f'视频代理错误: {str(e)}'}), 500 
+        return jsonify({'error': f'视频代理错误: {str(e)}'}), 500
+
+@text2video_bp.route('/api/text2video/history', methods=['GET'])
+def get_history():
+    """获取文本生成视频历史记录"""
+    try:
+        records = get_text2video_history()
+        return jsonify({
+            'status': 'success',
+            'count': len(records),
+            'data': records
+        })
+    except Exception as e:
+        logger.exception(f"获取历史记录失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取历史记录失败: {str(e)}',
+            'data': []
+        }), 500
+
+@text2video_bp.route('/text2video/history', methods=['GET'])
+def text2video_history():
+    records = get_text2video_history()
+    return jsonify(records) 

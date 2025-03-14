@@ -6,7 +6,7 @@ import uuid
 import requests
 from io import BytesIO
 from PIL import Image
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 from app.oss_client import oss_client
@@ -15,6 +15,8 @@ from urllib.parse import unquote, quote
 from http import HTTPStatus
 # 导入 DashScope SDK
 from dashscope import VideoSynthesis
+# 导入数据库操作函数
+from app.db_utils import save_image2video_request, update_image2video_status, get_image2video_history
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -287,6 +289,21 @@ def generate_video():
                     if hasattr(response, 'output') and hasattr(response.output, 'video_url'):
                         response_data['video_url'] = response.output.video_url
                 
+                # 收集请求数据用于保存到数据库
+                request_data = {
+                    'prompt': prompt,
+                    'model': model,
+                    'size': size,
+                    'duration': duration,
+                    'fps': fps,
+                    'motion_level': motion_level,
+                    'seed': seed,
+                    'prompt_extend': prompt_extend
+                }
+                
+                # 将请求保存到数据库
+                save_image2video_request(response_data['task_id'], request_data, image_url)
+                
                 return jsonify(response_data)
             elif hasattr(response, 'task_id'):
                 # 异步任务，保存任务ID
@@ -342,6 +359,22 @@ def generate_video():
                         logger.warning(f"添加异步响应数据时出错: {str(e)}")
                     
                     logger.info(f"返回给前端的任务ID: {task_id}")
+                    
+                    # 收集请求数据用于保存到数据库
+                    request_data = {
+                        'prompt': prompt,
+                        'model': model,
+                        'size': size,
+                        'duration': duration,
+                        'fps': fps,
+                        'motion_level': motion_level,
+                        'seed': seed,
+                        'prompt_extend': prompt_extend
+                    }
+                    
+                    # 将请求保存到数据库
+                    save_image2video_request(task_id, request_data, image_url)
+                    
                     return jsonify(response_data)
                     
                 except Exception as e:
@@ -378,6 +411,23 @@ def generate_video():
                     logger.warning(f"添加错误响应数据时出错: {str(e)}")
                     
                 logger.error(error_message)
+                
+                # 尝试创建一个虚拟任务ID并保存失败记录
+                fail_task_id = f"fail_{uuid.uuid4().hex}"
+                request_data = {
+                    'prompt': prompt,
+                    'model': model,
+                    'size': size,
+                    'duration': duration,
+                    'fps': fps,
+                    'motion_level': motion_level,
+                    'seed': seed,
+                    'prompt_extend': prompt_extend,
+                    'error': error_message
+                }
+                save_image2video_request(fail_task_id, request_data, image_url)
+                update_image2video_status(fail_task_id, 'FAILED', response_data)
+                
                 return jsonify(response_data), 500
                 
         except Exception as e:
@@ -742,4 +792,22 @@ def check_status(task_id):
                 'task_id': task_id,
                 'task_status': 'UNKNOWN'
             }
-        }) 
+        })
+
+@image2video_bp.route('/api/image2video/history', methods=['GET'])
+def get_history():
+    """获取图片生成视频历史记录"""
+    try:
+        records = get_image2video_history()
+        return jsonify({
+            'status': 'success',
+            'count': len(records),
+            'data': records
+        })
+    except Exception as e:
+        logger.exception(f"获取历史记录失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取历史记录失败: {str(e)}',
+            'data': []
+        }), 500 

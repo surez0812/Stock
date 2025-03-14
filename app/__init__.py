@@ -2,6 +2,7 @@ from flask import Flask
 from flask_cors import CORS
 import os
 import logging
+from app.db_utils import init_db
 
 def create_app():
     # 配置日志
@@ -22,6 +23,13 @@ def create_app():
     
     # 确保上传文件夹存在
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    
+    # 初始化数据库
+    db_init_success = init_db(app)
+    if not db_init_success:
+        app.logger.error("数据库初始化失败")
+    else:
+        app.logger.info("数据库初始化成功")
     
     # 注册蓝图
     from app.routes import main

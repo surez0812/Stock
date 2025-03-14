@@ -297,17 +297,44 @@
                     </div>
                 </div>
             </div>
-            <video id="resultVideo" controls crossorigin="anonymous" style="display: none;">
-                您的浏览器不支持 HTML5 视频播放。
-            </video>
-            <div id="videoLinkContainer" class="mt-3" style="display: none;">
-                <p>如果视频无法播放，请尝试直接打开链接：</p>
-                <a id="directVideoLink" href="#" target="_blank">视频直接链接</a>
+            <div id="videoContainer" class="mt-3">
+                <video id="resultVideo" controls crossorigin="anonymous" style="display: none;">
+                    您的浏览器不支持 HTML5 视频播放。
+                </video>
+                <div id="directLinkContainer" class="mt-3" style="display: none;">
+                    <p>如果视频无法播放，请尝试直接打开链接：</p>
+                    <a id="directVideoLink" href="#" target="_blank">视频直接链接</a>
+                </div>
             </div>
         </div>
         
         <div class="mt-4">
             <a href="/" class="btn btn-secondary">返回首页</a>
+        </div>
+        <div class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2>历史记录</h2>
+                <button id="refreshHistoryBtn" class="btn btn-sm btn-outline-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                        <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+            <div class="card">
+                <div class="card-header bg-light">
+                    最近生成的视频记录
+                </div>
+                <div class="list-group list-group-flush" id="historyList">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <span class="ms-2">正在加载历史记录...</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -434,7 +461,7 @@
         async function checkTaskStatus(taskId) {
             try {
                 let retryCount = 0;
-                const MAX_RETRIES = 30; // 最多等待30次，每次5秒，总共约2.5分钟
+                const MAX_RETRIES = 60; // 增加到60次，每次5秒，总共约5分钟
                 
                 while (retryCount < MAX_RETRIES) {
                     const response = await fetch(`/api/text2video/status/${taskId}`);
@@ -525,7 +552,12 @@
                         
                         break;
                     } else if (data.status === 'FAILED') {
-                        throw new Error(data.error || '视频生成失败');
+                        // 显示详细的错误信息
+                        let errorMessage = data.error || '视频生成失败';
+                        if (data.output && data.output.message) {
+                            errorMessage += `: ${data.output.message}`;
+                        }
+                        throw new Error(errorMessage);
                     } else if (data.status === 'PENDING') {
                         // 如果有特定消息，显示给用户
                         if (data.message) {
@@ -536,8 +568,10 @@
                         retryCount++;
                         
                         // 显示剩余等待次数
-                        if (retryCount % 3 === 0) { // 每3次显示一次提示
-                            showAlert('info', `正在等待视频生成，已等待${retryCount * 5}秒，最多等待${MAX_RETRIES * 5}秒`);
+                        if (retryCount % 6 === 0) { // 每30秒显示一次提示
+                            const elapsedTime = retryCount * 5;
+                            const remainingTime = (MAX_RETRIES - retryCount) * 5;
+                            showAlert('info', `正在等待视频生成，已等待${elapsedTime}秒，预计还需${remainingTime}秒`);
                         }
                         
                         // 等待5秒后再次检查
@@ -553,7 +587,9 @@
                 
                 // 如果达到最大重试次数仍未成功
                 if (retryCount >= MAX_RETRIES) {
-                    throw new Error('视频生成超时，请稍后在历史记录中查看结果或重新尝试');
+                    // 提供更友好的超时消息
+                    showAlert('warning', '视频生成时间较长，已超过等待时间。您可以：<br>1. 稍后刷新页面查看结果<br>2. 尝试使用更简短的提示词<br>3. 选择Turbo模型加快生成速度');
+                    throw new Error('视频生成超时，请稍后刷新页面查看结果或重新尝试');
                 }
             } catch (error) {
                 console.error('任务状态检查错误:', error);
@@ -572,6 +608,183 @@
                 </div>
             `;
         }
+
+        function fetchHistory() {
+            fetch('/api/text2video/history')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    var historyList = document.getElementById('historyList');
+                    historyList.innerHTML = '';
+                    
+                    if (!data || !data.data || data.data.length === 0) {
+                        historyList.innerHTML = '<div class="alert alert-info">暂无历史记录</div>';
+                        return;
+                    }
+                    
+                    const records = data.data || data;
+                    records.forEach(function(record) {
+                        var item = document.createElement('a');
+                        item.href = '#';
+                        item.className = 'list-group-item list-group-item-action';
+                        
+                        // 添加更详细的历史记录信息
+                        let statusBadge = '';
+                        if (record.status === 'SUCCEEDED') {
+                            statusBadge = '<span class="badge bg-success">成功</span> ';
+                        } else if (record.status === 'FAILED') {
+                            statusBadge = '<span class="badge bg-danger">失败</span> ';
+                        } else if (record.status === 'PENDING') {
+                            statusBadge = '<span class="badge bg-warning">处理中</span> ';
+                        }
+                        
+                        let promptText = record.prompt;
+                        if (promptText.length > 30) {
+                            promptText = promptText.substring(0, 30) + '...';
+                        }
+                        
+                        let modelInfo = record.model ? `<small class="text-muted">[${record.model}]</small> ` : '';
+                        let dateStr = record.created_at ? record.created_at : '未知时间';
+                        
+                        item.innerHTML = `
+                            <div>
+                                ${statusBadge}${modelInfo}${dateStr}
+                                <p class="mb-1">${promptText}</p>
+                                <small>${record.size || ''} ${record.fps ? record.fps + 'fps' : ''}</small>
+                            </div>
+                        `;
+                        
+                        item.onclick = function(e) {
+                            e.preventDefault();
+                            
+                            // 恢复主要提示词
+                            document.getElementById('prompt').value = record.prompt;
+                            
+                            // 恢复模型选择
+                            if (record.model) {
+                                const modelSelect = document.getElementById('model');
+                                for (let i = 0; i < modelSelect.options.length; i++) {
+                                    if (modelSelect.options[i].value === record.model) {
+                                        modelSelect.selectedIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // 恢复尺寸选择
+                            if (record.size) {
+                                const sizeSelect = document.getElementById('size');
+                                for (let i = 0; i < sizeSelect.options.length; i++) {
+                                    if (sizeSelect.options[i].value === record.size) {
+                                        sizeSelect.selectedIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // 恢复FPS
+                            if (record.fps) {
+                                document.getElementById('fps').value = record.fps;
+                            }
+                            
+                            // 恢复种子值
+                            if (record.seed) {
+                                document.getElementById('seed').value = record.seed;
+                            }
+                            
+                            // 恢复提示词增强选项
+                            if (record.prompt_extend !== undefined) {
+                                document.getElementById('prompt_extend').checked = record.prompt_extend;
+                            }
+                            
+                            // 更新任务状态显示
+                            const taskStatusContainer = document.getElementById('taskStatusContainer');
+                            if (taskStatusContainer) {
+                                taskStatusContainer.style.display = 'block';
+                                document.getElementById('taskIdDisplay').textContent = record.task_id || '未知';
+                                document.getElementById('taskStatusDisplay').textContent = record.status || '未知';
+                                
+                                if (record.process_time) {
+                                    document.getElementById('processTimeDisplay').textContent = 
+                                        record.process_time.toFixed(2) + '秒';
+                                }
+                            }
+                            
+                            // 显示视频（如果有）
+                            if (record.video_url || record.oss_video_url) {
+                                const videoUrl = record.oss_video_url || record.video_url;
+                                
+                                // 检查是否是直接URL或需要代理
+                                let finalUrl = videoUrl;
+                                if (videoUrl && !videoUrl.startsWith('/api/')) {
+                                    // 使用代理获取视频
+                                    finalUrl = `/api/video_proxy?url=${encodeURIComponent(videoUrl)}`;
+                                }
+                                
+                                // 添加时间戳以避免缓存问题
+                                finalUrl += (finalUrl.includes('?') ? '&' : '?') + '_t=' + new Date().getTime();
+                                
+                                const video = document.getElementById('resultVideo');
+                                if (video) {
+                                    video.style.display = 'block';
+                                    video.src = finalUrl;
+                                    video.load();
+                                    
+                                    // 添加事件处理
+                                    video.onloadstart = function() {
+                                        console.log('视频开始加载');
+                                        showAlert('info', '正在从历史记录加载视频...');
+                                    };
+                                    
+                                    video.onloadeddata = function() {
+                                        console.log('视频数据已加载');
+                                        showAlert('success', '已从历史记录加载视频和设置');
+                                    };
+                                    
+                                    video.onerror = function(e) {
+                                        console.error('视频加载错误:', e);
+                                        showAlert('warning', '通过代理加载视频失败，请尝试使用下方的直接链接');
+                                    };
+                                }
+                                
+                                // 显示直接链接
+                                const directLinkContainer = document.getElementById('directLinkContainer');
+                                if (directLinkContainer) {
+                                    directLinkContainer.style.display = 'block';
+                                    const directLink = document.getElementById('directVideoLink');
+                                    if (directLink) {
+                                        directLink.href = videoUrl;
+                                        directLink.textContent = '点击直接下载视频';
+                                    }
+                                }
+                                
+                                // 滚动到视频区域
+                                const videoContainer = document.getElementById('videoContainer');
+                                if (videoContainer) {
+                                    videoContainer.scrollIntoView({ behavior: 'smooth' });
+                                }
+                            } else {
+                                showAlert('info', '已加载历史记录的设置，但该记录没有关联的视频');
+                            }
+                        };
+                        historyList.appendChild(item);
+                    });
+                })
+                .catch(function(error) { 
+                    console.error('获取历史记录失败:', error);
+                    showAlert('danger', '获取历史记录失败: ' + (error.message || '未知错误'));
+                });
+        }
+
+        // 页面加载时获取历史记录
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchHistory();
+            
+            // 添加刷新历史记录按钮的事件处理
+            const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+            if (refreshHistoryBtn) {
+                refreshHistoryBtn.addEventListener('click', fetchHistory);
+            }
+        });
     </script>
 </body>
 </html> 

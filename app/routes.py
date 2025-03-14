@@ -490,5 +490,110 @@ def stock_kline():
 
 @main.route('/investment')
 def investment():
-    """投资页面 - 这是investment-knowledge的别名"""
-    return send_from_directory('templates', 'investment_knowledge.html') 
+    """投资页面"""
+    return render_template('investment_knowledge.html')
+
+@main.route('/api/history/test', methods=['GET'])
+def test_history():
+    """测试添加历史记录的API端点"""
+    from app.db_utils import (
+        save_text2video_request, 
+        update_text2video_status,
+        save_image2video_request,
+        update_image2video_status,
+        get_text2video_history,
+        get_image2video_history
+    )
+    import uuid
+    import random
+    import time
+    
+    try:
+        # 生成唯一任务ID
+        task_id = str(uuid.uuid4())
+        
+        # 创建测试数据
+        test_data = {
+            'prompt': f'测试历史记录 #{random.randint(1000, 9999)}',
+            'model': 'wanx-v1',
+            'size': '1280*720',
+            'fps': 16,
+            'seed': str(random.randint(1, 1000000)),
+            'prompt_extend': 'true'
+        }
+        
+        # 保存Text2Video请求
+        save_text2video_request(task_id, test_data)
+        
+        # 模拟处理延时
+        time.sleep(1)
+        
+        # 更新状态为成功
+        response_data = {'outputUrl': 'https://example.com/sample-video.mp4'}
+        update_text2video_status(
+            task_id, 
+            'SUCCEEDED', 
+            response_data=response_data,
+            video_url='https://example.com/sample-video.mp4',
+            process_time=random.uniform(2.5, 10.0)
+        )
+        
+        # 获取历史记录
+        text2video_history = get_text2video_history()
+        
+        return jsonify({
+            'status': 'success',
+            'message': '测试历史记录添加成功',
+            'task_id': task_id,
+            'history_count': len(text2video_history),
+            'latest_record': text2video_history[0] if text2video_history else None
+        })
+        
+    except Exception as e:
+        logging.error(f"测试历史记录失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'测试失败: {str(e)}'
+        }), 500
+
+@main.route('/api/db/test', methods=['GET'])
+def test_database():
+    """测试数据库连接和初始化的API端点"""
+    from app.models import db
+    from sqlalchemy import inspect, text
+    
+    results = {
+        'database_exists': False,
+        'tables_exist': False,
+        'connection_ok': False,
+        'tables': [],
+        'error': None
+    }
+    
+    try:
+        # 检查数据库连接
+        connection = db.engine.connect()
+        results['connection_ok'] = True
+        
+        # 检查数据库是否存在
+        try:
+            connection.execute(text('USE video_generation'))
+            results['database_exists'] = True
+        except Exception as e:
+            results['error'] = f"数据库video_generation不存在: {str(e)}"
+            return jsonify(results)
+        
+        # 获取所有表
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        results['tables'] = tables
+        
+        # 检查表是否存在
+        if 'text2video_requests' in tables and 'image2video_requests' in tables:
+            results['tables_exist'] = True
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        results['error'] = f"数据库连接测试失败: {str(e)}"
+        return jsonify(results) 
