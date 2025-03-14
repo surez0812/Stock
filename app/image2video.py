@@ -276,11 +276,14 @@ def generate_video():
                         response_data['usage'] = response['usage']
                     elif hasattr(response, 'usage'):
                         try:
-                            usage_dict = {}
-                            for usage_attr in ['video_count', 'video_duration', 'video_ratio']:
-                                if hasattr(response.usage, usage_attr):
-                                    usage_dict[usage_attr] = getattr(response.usage, usage_attr)
-                            response_data['usage'] = usage_dict
+                            usage_dict = data['usage']
+                            usage = type('Usage', (), {})
+                            
+                            # 将字典转换为属性
+                            for key, value in usage_dict.items():
+                                setattr(usage, key, value)
+                            
+                            response_data['usage'] = usage
                         except Exception as e:
                             logger.warning(f"提取usage内容时出错: {str(e)}")
                 except Exception as e:
@@ -672,15 +675,37 @@ def check_status(task_id):
                         response_data['output'] = {}
                     response_data['output']['video_url'] = video_url
                 
-                # 计算处理总时间（如果有记录起始时间）
-                if task_id in task_status and 'upload_start_time' in task_status[task_id]:
-                    upload_start_time = task_status[task_id]['upload_start_time']
-                    total_time = time.time() - upload_start_time
-                    logger.info(f"任务 {task_id} 从上传到完成总耗时: {total_time:.2f}秒")
+                # 新增: 更新数据库并上传视频到OSS
+                if video_url:
+                    logger.info(f"任务 {task_id} 成功完成，视频URL: {video_url}，开始更新数据库并上传到OSS")
                     
-                    # 添加处理时间到响应中
-                    response_data['process_time'] = round(total_time, 2)
-                    response_data['process_time_formatted'] = f"{int(total_time // 60)}分{int(total_time % 60)}秒"
+                    # 计算处理总时间（如果有记录起始时间）
+                    process_time = None
+                    if task_id in task_status and 'upload_start_time' in task_status[task_id]:
+                        upload_start_time = task_status[task_id]['upload_start_time']
+                        process_time = time.time() - upload_start_time
+                        logger.info(f"任务 {task_id} 从上传到完成总耗时: {process_time:.2f}秒")
+                        
+                        # 添加处理时间到响应中
+                        response_data['process_time'] = round(process_time, 2)
+                        response_data['process_time_formatted'] = f"{int(process_time // 60)}分{int(process_time % 60)}秒"
+                    
+                    # 调用更新函数
+                    from app.db_utils import update_image2video_status
+                    update_success = update_image2video_status(
+                        task_id=task_id,
+                        status='SUCCEEDED',
+                        response_data=response_data,
+                        video_url=video_url,
+                        process_time=process_time
+                    )
+                    
+                    if update_success:
+                        logger.info(f"任务 {task_id} 成功更新数据库并上传视频到OSS")
+                    else:
+                        logger.warning(f"任务 {task_id} 更新数据库或上传视频到OSS失败")
+                else:
+                    logger.warning(f"任务 {task_id} 成功完成，但未获取到视频URL")
                 
                 # 如果有任务开始和结束时间，也计算API处理时间
                 if ('output' in response_data and 
@@ -741,6 +766,14 @@ def check_status(task_id):
                 elif hasattr(response, 'message'):
                     response_data['message'] = response.message
                 
+                # 新增: 更新数据库记录为失败状态
+                from app.db_utils import update_image2video_status
+                update_image2video_status(
+                    task_id=task_id,
+                    status='FAILED',
+                    response_data=response_data
+                )
+                
                 logger.error(f"任务 {task_id} 失败: {response_data.get('message', '')}")
                 return jsonify(response_data)
             
@@ -794,7 +827,7 @@ def check_status(task_id):
             }
         })
 
-@image2video_bp.route('/api/image2video/history', methods=['GET'])
+@image2video_bp.route('/history', methods=['GET'])
 def get_history():
     """获取图片生成视频历史记录"""
     try:
@@ -810,4 +843,64 @@ def get_history():
             'status': 'error',
             'message': f'获取历史记录失败: {str(e)}',
             'data': []
+        }), 500
+
+# 视频代理端点，解决CORS问题
+@image2video_bp.route('/video-proxy', methods=['GET'])
+def video_proxy():
+    """
+    视频代理API，用于解决跨域请求问题
+    使用方式：/api/image2video/video-proxy?url=原始视频URL
+    """
+    try:
+        # 获取原始视频URL
+        video_url = request.args.get('url')
+        if not video_url:
+            return jsonify({'error': '缺少视频URL参数'}), 400
+        
+        # URL解码
+        video_url = unquote(video_url)
+        logger.info(f"视频代理请求: {video_url}")
+        
+        # 发送请求获取视频内容
+        def generate():
+            with requests.get(video_url, stream=True, timeout=30) as resp:
+                if resp.status_code != 200:
+                    logger.error(f"获取视频失败，状态码: {resp.status_code}")
+                    yield json.dumps({
+                        'error': f'获取视频失败，状态码: {resp.status_code}'
+                    }).encode('utf-8')
+                    return
+                
+                # 获取响应头
+                headers = resp.headers
+                content_type = headers.get('Content-Type', 'video/mp4')
+                content_length = headers.get('Content-Length')
+                
+                logger.info(f"视频内容类型: {content_type}, 大小: {content_length}")
+                
+                # 流式传输视频内容
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+        
+        # 创建流式响应
+        response = Response(stream_with_context(generate()), content_type='video/mp4')
+        
+        # 添加CORS头
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        
+        # 添加视频相关头
+        response.headers['Content-Disposition'] = 'inline'
+        
+        logger.info("视频代理响应已创建")
+        return response
+        
+    except Exception as e:
+        error_message = f"视频代理出错: {str(e)}"
+        logger.exception(error_message)
+        return jsonify({
+            'error': error_message
         }), 500 

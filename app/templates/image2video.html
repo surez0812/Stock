@@ -158,6 +158,33 @@
         <div class="mt-4">
             <a href="/" class="btn btn-secondary">返回首页</a>
         </div>
+        
+        <!-- 添加历史记录区域 -->
+        <div class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2>历史记录</h2>
+                <button id="refreshHistoryBtn" class="btn btn-sm btn-outline-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                        <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+            <div class="card">
+                <div class="card-header bg-light">
+                    最近生成的视频记录
+                </div>
+                <div class="list-group list-group-flush" id="historyList">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <span class="ms-2">正在加载历史记录...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -269,9 +296,15 @@
                         // 显示生成的视频
                         showAlert('success', '视频生成成功！');
                         
-                        // 添加时间戳参数以避免缓存问题
-                        const videoUrl = data.video_url + (data.video_url.includes('?') ? '&' : '?') + '_t=' + new Date().getTime();
-                        console.log("加载视频URL:", videoUrl);
+                        // 成功获取视频URL
+                        console.log("成功获取视频URL:", data.video_url);
+                        
+                        // 使用代理API构建视频URL，解决CORS问题
+                        const originalVideoUrl = data.video_url;
+                        // 使用代理API，将原始URL作为参数传递
+                        const proxyVideoUrl = `/api/image2video/video-proxy?url=${encodeURIComponent(originalVideoUrl)}` + '&_t=' + new Date().getTime();
+                        
+                        console.log("使用代理视频URL:", proxyVideoUrl);
                         
                         const video = document.getElementById('resultVideo');
                         
@@ -281,18 +314,43 @@
                         video.addEventListener('canplay', () => console.log('视频可以播放'));
                         video.addEventListener('error', (e) => {
                             console.error('视频加载错误:', e);
-                            showAlert('danger', '视频无法加载，请尝试使用下方的直接链接');
+                            showAlert('danger', '视频无法加载，请尝试使用下方的直接链接或刷新页面重试');
+                            // 显示错误细节
+                            document.getElementById('videoErrorDetails').innerHTML = 
+                                `<div class="alert alert-secondary mt-2">
+                                    <p><strong>错误详情：</strong></p>
+                                    <p>原始URL: ${originalVideoUrl.substring(0, 50)}...</p>
+                                    <p>代理URL: ${proxyVideoUrl.substring(0, 50)}...</p>
+                                    <p>错误代码: ${video.error ? video.error.code : '未知'}</p>
+                                    <p>错误消息: ${video.error ? video.error.message : '未知'}</p>
+                                </div>`;
                         });
                         
                         // 设置视频源并尝试加载
-                        video.src = videoUrl;
+                        video.src = proxyVideoUrl;
                         video.style.display = 'block';
                         
-                        // 显示直接链接
+                        // 显示直接链接 - 使用原始URL
                         const directLink = document.getElementById('directVideoLink');
-                        directLink.href = data.video_url;
-                        directLink.textContent = '打开视频 (' + data.video_url.split('/').pop() + ')';
+                        directLink.href = originalVideoUrl;
+                        directLink.textContent = '打开原始视频 (' + originalVideoUrl.split('/').pop().split('?')[0] + ')';
+                        
+                        // 添加代理链接
+                        const proxyLink = document.createElement('a');
+                        proxyLink.href = proxyVideoUrl;
+                        proxyLink.textContent = '打开代理视频';
+                        proxyLink.className = 'ms-3';
+                        proxyLink.target = '_blank';
+                        document.getElementById('videoLinkContainer').appendChild(proxyLink);
+                        
                         document.getElementById('videoLinkContainer').style.display = 'block';
+                        
+                        // 添加视频错误详情容器
+                        if (!document.getElementById('videoErrorDetails')) {
+                            const errorDiv = document.createElement('div');
+                            errorDiv.id = 'videoErrorDetails';
+                            document.getElementById('videoLinkContainer').after(errorDiv);
+                        }
                         
                         // 尝试预加载视频
                         video.load();
@@ -337,6 +395,207 @@
                 </div>
             `;
         }
+        
+        // 获取历史记录函数
+        function fetchHistory() {
+            fetch('/api/image2video/history')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    var historyList = document.getElementById('historyList');
+                    historyList.innerHTML = '';
+                    
+                    if (!data || !data.data || data.data.length === 0) {
+                        historyList.innerHTML = '<div class="alert alert-info">暂无历史记录</div>';
+                        return;
+                    }
+                    
+                    const records = data.data || data;
+                    records.forEach(function(record) {
+                        var item = document.createElement('a');
+                        item.href = '#';
+                        item.className = 'list-group-item list-group-item-action';
+                        
+                        // 添加更详细的历史记录信息
+                        let statusBadge = '';
+                        if (record.status === 'SUCCEEDED') {
+                            statusBadge = '<span class="badge bg-success">成功</span> ';
+                        } else if (record.status === 'FAILED') {
+                            statusBadge = '<span class="badge bg-danger">失败</span> ';
+                        } else if (record.status === 'PENDING') {
+                            statusBadge = '<span class="badge bg-warning">处理中</span> ';
+                        }
+                        
+                        let promptText = record.prompt || '无提示词';
+                        if (promptText.length > 30) {
+                            promptText = promptText.substring(0, 30) + '...';
+                        }
+                        
+                        let modelInfo = record.model ? `<small class="text-muted">[${record.model}]</small> ` : '';
+                        let dateStr = record.created_at ? record.created_at : '未知时间';
+                        
+                        item.innerHTML = `
+                            <div>
+                                ${statusBadge}${modelInfo}${dateStr}
+                                <p class="mb-1">${promptText}</p>
+                                <small>${record.size || ''} ${record.duration ? record.duration + '秒' : ''} ${record.fps ? record.fps + 'fps' : ''}</small>
+                            </div>
+                        `;
+                        
+                        item.onclick = function(e) {
+                            e.preventDefault();
+                            
+                            // 恢复提示文本（如果有）
+                            if (record.prompt) {
+                                document.getElementById('prompt').value = record.prompt;
+                            }
+                            
+                            // 恢复模型选择
+                            if (record.model) {
+                                const modelSelect = document.getElementById('model');
+                                for (let i = 0; i < modelSelect.options.length; i++) {
+                                    if (modelSelect.options[i].value === record.model) {
+                                        modelSelect.selectedIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // 恢复尺寸选择
+                            if (record.size) {
+                                const sizeSelect = document.getElementById('size');
+                                for (let i = 0; i < sizeSelect.options.length; i++) {
+                                    if (sizeSelect.options[i].value === record.size) {
+                                        sizeSelect.selectedIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // 恢复时长
+                            if (record.duration) {
+                                document.getElementById('duration').value = record.duration;
+                            }
+                            
+                            // 恢复FPS
+                            if (record.fps) {
+                                document.getElementById('fps').value = record.fps;
+                            }
+                            
+                            // 恢复动作幅度
+                            if (record.motion_level) {
+                                const motionLevelSelect = document.getElementById('motion_level');
+                                for (let i = 0; i < motionLevelSelect.options.length; i++) {
+                                    if (motionLevelSelect.options[i].value === record.motion_level) {
+                                        motionLevelSelect.selectedIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // 恢复种子值
+                            if (record.seed) {
+                                document.getElementById('seed').value = record.seed;
+                            }
+                            
+                            // 恢复提示词增强选项
+                            if (record.prompt_extend !== undefined) {
+                                document.getElementById('prompt_extend').checked = record.prompt_extend;
+                            }
+                            
+                            // 更新任务状态显示
+                            const taskStatusContainer = document.getElementById('taskStatusContainer');
+                            if (taskStatusContainer) {
+                                taskStatusContainer.style.display = 'block';
+                                document.getElementById('taskIdDisplay').textContent = record.task_id || '未知';
+                                document.getElementById('taskStatusDisplay').textContent = record.status || '未知';
+                                
+                                if (record.process_time) {
+                                    document.getElementById('processTimeDisplay').textContent = 
+                                        record.process_time.toFixed(2) + '秒';
+                                }
+                            }
+                            
+                            // 无法恢复上传的图片，但可以显示历史图片预览
+                            if (record.image_url) {
+                                const previewImage = document.getElementById('previewImage');
+                                previewImage.src = record.image_url;
+                                previewImage.style.display = 'block';
+                                showAlert('info', '已从历史记录加载设置，但您需要重新上传原始图片');
+                            }
+                            
+                            // 显示视频（如果有）
+                            if (record.video_url || record.oss_video_url) {
+                                const videoUrl = record.oss_video_url || record.video_url;
+                                
+                                // 检查是否需要代理
+                                let finalUrl = videoUrl;
+                                if (videoUrl && !videoUrl.startsWith('/api/')) {
+                                    // 使用代理获取视频
+                                    finalUrl = `/api/video_proxy?url=${encodeURIComponent(videoUrl)}`;
+                                }
+                                
+                                // 添加时间戳以避免缓存问题
+                                finalUrl += (finalUrl.includes('?') ? '&' : '?') + '_t=' + new Date().getTime();
+                                
+                                const video = document.getElementById('resultVideo');
+                                if (video) {
+                                    video.style.display = 'block';
+                                    video.src = finalUrl;
+                                    video.load();
+                                    
+                                    // 添加事件处理
+                                    video.onloadstart = function() {
+                                        console.log('视频开始加载');
+                                        showAlert('info', '正在从历史记录加载视频...');
+                                    };
+                                    
+                                    video.onloadeddata = function() {
+                                        console.log('视频数据已加载');
+                                        showAlert('success', '已从历史记录加载视频和设置');
+                                    };
+                                    
+                                    video.onerror = function(e) {
+                                        console.error('视频加载错误:', e);
+                                        showAlert('warning', '视频加载失败，请尝试使用下方的直接链接');
+                                    };
+                                }
+                                
+                                // 显示直接链接
+                                const videoLinkContainer = document.getElementById('videoLinkContainer');
+                                if (videoLinkContainer) {
+                                    videoLinkContainer.style.display = 'block';
+                                    const directLink = document.getElementById('directVideoLink');
+                                    if (directLink) {
+                                        directLink.href = videoUrl;
+                                        directLink.textContent = '打开视频 (' + videoUrl.split('/').pop().split('?')[0] + ')';
+                                    }
+                                }
+                                
+                                // 滚动到视频区域
+                                document.getElementById('resultVideo').scrollIntoView({ behavior: 'smooth' });
+                            } else {
+                                showAlert('info', '已加载历史记录的设置，但没有关联的视频或视频生成失败');
+                            }
+                        };
+                        historyList.appendChild(item);
+                    });
+                })
+                .catch(function(error) { 
+                    console.error('获取历史记录失败:', error);
+                    showAlert('danger', '获取历史记录失败: ' + (error.message || '未知错误'));
+                });
+        }
+
+        // 页面加载时获取历史记录
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchHistory();
+            
+            // 添加刷新历史记录按钮的事件处理
+            const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+            if (refreshHistoryBtn) {
+                refreshHistoryBtn.addEventListener('click', fetchHistory);
+            }
+        });
     </script>
 </body>
 </html> 
