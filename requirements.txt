@@ -15,3 +15,7 @@ matplotlib==3.8.3  # 图形库
 TA-Lib==0.6.3 
 Flask-SQLAlchemy==3.0.5  # 数据库管理
 PyMySQL==1.0.3  # MySQL数据库连接器 
+replicate
+numpy
+openpyxl
+tabulate 

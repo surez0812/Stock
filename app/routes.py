@@ -142,6 +142,10 @@ def text2video():
 def image2video():
     return render_template('image2video.html')
 
+@main.route('/replicate-image2video')
+def replicate_image2video():
+    return render_template('replicate_image2video.html')
+
 @main.route('/api/markdown')
 def get_markdown():
     # 读取markdown文件

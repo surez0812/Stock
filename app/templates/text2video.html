@@ -408,7 +408,7 @@
             document.getElementById('loadingSpinner').style.display = 'block';
             document.getElementById('resultVideo').style.display = 'none';
             document.getElementById('alertContainer').innerHTML = '';
-            document.getElementById('videoLinkContainer').style.display = 'none';
+            document.getElementById('directLinkContainer').style.display = 'none';
             
             try {
                 // 发送请求到后端
@@ -461,13 +461,21 @@
         async function checkTaskStatus(taskId) {
             try {
                 let retryCount = 0;
-                const MAX_RETRIES = 60; // 增加到60次，每次5秒，总共约5分钟
+                const MAX_RETRIES = 180; // 增加到180次，每次5秒，总共约15分钟
+                const originalTaskId = taskId; // 保存原始任务ID
                 
                 while (retryCount < MAX_RETRIES) {
-                    const response = await fetch(`/api/text2video/status/${taskId}`);
+                    const response = await fetch(`/api/text2video/status/${originalTaskId}`);
                     const data = await response.json();
                     
-                    console.log("任务状态检查结果:", data);
+                    // 日志记录，但忽略请求ID和其他可能变化的信息
+                    console.log(`任务状态检查 #${retryCount+1}: status=${data.status}, task_id=${data.task_id}`);
+                    
+                    // 验证返回的任务ID是否与原始任务ID匹配
+                    if (data.task_id && data.task_id !== originalTaskId) {
+                        console.warn(`警告：返回的任务ID (${data.task_id}) 与原始任务ID (${originalTaskId}) 不匹配，将使用原始任务ID继续`);
+                        // 仍然继续处理，但使用原始任务ID
+                    }
                     
                     // 更新任务状态显示
                     document.getElementById('taskStatusDisplay').textContent = data.status || '未知';
@@ -479,11 +487,8 @@
                         document.getElementById('processTimeDisplay').textContent = `${data.process_time}秒`;
                     }
                     
-                    // 显示更多任务详情
+                    // 显示更多任务详情，但不显示可能变化的request_id
                     let detailsHtml = '';
-                    if (data.request_id) {
-                        detailsHtml += `<p><strong>请求ID:</strong> ${data.request_id}</p>`;
-                    }
                     if (data.output && data.output.submit_time) {
                         detailsHtml += `<p><strong>提交时间:</strong> ${data.output.submit_time}</p>`;
                     }
@@ -493,7 +498,7 @@
                     document.getElementById('taskDetailsDisplay').innerHTML = detailsHtml;
                     
                     if (data.status === 'SUCCEEDED') {
-                        // 显示生成的视频
+                        // 视频生成成功的处理逻辑...
                         showAlert('success', '视频生成成功！');
                         
                         // 获取原始视频URL
@@ -530,7 +535,7 @@
                         const directLink = document.getElementById('directVideoLink');
                         directLink.href = originalVideoUrl;
                         directLink.textContent = '下载视频 (' + originalVideoUrl.split('/').pop().split('?')[0] + ')';
-                        document.getElementById('videoLinkContainer').style.display = 'block';
+                        document.getElementById('directLinkContainer').style.display = 'block';
                         
                         // 尝试预加载视频
                         video.load();
@@ -558,17 +563,16 @@
                             errorMessage += `: ${data.output.message}`;
                         }
                         throw new Error(errorMessage);
-                    } else if (data.status === 'PENDING') {
-                        // 如果有特定消息，显示给用户
-                        if (data.message) {
-                            showAlert('info', data.message);
-                        }
-                        
+                    } else if (data.status === 'PENDING' || data.status === 'RUNNING') {
                         // 增加重试计数
                         retryCount++;
                         
-                        // 显示剩余等待次数
-                        if (retryCount % 6 === 0) { // 每30秒显示一次提示
+                        // 显示状态提示，并区分PENDING和RUNNING状态
+                        if (data.status === 'RUNNING') {
+                            if (retryCount % 3 === 0) { // 每15秒更新一次运行中消息
+                                showAlert('info', `视频正在生成中，请耐心等待...（已等待${retryCount * 5}秒）`);
+                            }
+                        } else if (retryCount % 6 === 0) { // 每30秒显示一次提示
                             const elapsedTime = retryCount * 5;
                             const remainingTime = (MAX_RETRIES - retryCount) * 5;
                             showAlert('info', `正在等待视频生成，已等待${elapsedTime}秒，预计还需${remainingTime}秒`);
@@ -577,25 +581,43 @@
                         // 等待5秒后再次检查
                         await new Promise(resolve => setTimeout(resolve, 5000));
                     } else {
-                        // 增加重试计数
+                        // 其他未知状态处理
+                        console.log(`未知状态: ${data.status}，继续轮询`);
                         retryCount++;
-                        
-                        // 等待5秒后再次检查
                         await new Promise(resolve => setTimeout(resolve, 5000));
                     }
                 }
                 
                 // 如果达到最大重试次数仍未成功
                 if (retryCount >= MAX_RETRIES) {
-                    // 提供更友好的超时消息
-                    showAlert('warning', '视频生成时间较长，已超过等待时间。您可以：<br>1. 稍后刷新页面查看结果<br>2. 尝试使用更简短的提示词<br>3. 选择Turbo模型加快生成速度');
-                    throw new Error('视频生成超时，请稍后刷新页面查看结果或重新尝试');
+                    // 提供更友好的超时消息，并建议保留标签页
+                    showAlert('warning', `视频生成时间较长，已超过最长等待时间（${MAX_RETRIES * 5 / 60}分钟）。<br><br><b>重要提示</b>：<br>1. <b>请保留此标签页</b>，任务仍在后台进行<br>2. 您可随时刷新页面并在历史记录中查看结果<br>3. 尝试使用更简短的提示词<br>4. 选择Turbo模型加快生成速度`);
+                    
+                    // 定期自动检查状态，即使超过了最大重试次数
+                    setInterval(async () => {
+                        try {
+                            const response = await fetch(`/api/text2video/status/${originalTaskId}`);
+                            const data = await response.json();
+                            console.log("后台状态检查:", data);
+                            
+                            if (data.status === 'SUCCEEDED' && data.video_url) {
+                                // 如果任务成功了，刷新页面以显示结果
+                                showAlert('success', '视频生成成功！页面将在5秒后刷新...');
+                                setTimeout(() => { location.reload(); }, 5000);
+                            }
+                        } catch (error) {
+                            console.error("后台检查出错:", error);
+                        }
+                    }, 60000); // 每分钟检查一次
                 }
             } catch (error) {
                 console.error('任务状态检查错误:', error);
                 showAlert('danger', `错误：${error.message}`);
             } finally {
-                document.getElementById('loadingSpinner').style.display = 'none';
+                // 不要在超时情况下隐藏加载指示器，让用户知道任务仍在后台进行
+                if (retryCount < MAX_RETRIES) {
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                }
             }
         }
 

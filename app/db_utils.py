@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from urllib.parse import urlparse
 from flask import current_app
-from app.models import db, Text2VideoRequest, Image2VideoRequest
+from app.models import db, Text2VideoRequest, Image2VideoRequest, ReplicateImage2VideoRequest
 from app.oss_client import oss_client
 
 # 配置日志
@@ -14,8 +14,15 @@ logger = logging.getLogger('db_utils')
 
 def init_db(app):
     """初始化数据库"""
+    # 从环境变量获取MySQL连接信息
+    mysql_host = os.environ.get('MYSQL_HOST', 'localhost')
+    mysql_user = os.environ.get('MYSQL_USER', 'root')
+    mysql_password = os.environ.get('MYSQL_PASSWORD', 'HelloWorld')
+    mysql_db = os.environ.get('MYSQL_DB', 'stock_testing_tools')
+    
     # 配置MySQL连接
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:HelloWorld@localhost/video_generation'
+    mysql_uri = f'mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}/{mysql_db}'
+    app.config['SQLALCHEMY_DATABASE_URI'] = mysql_uri
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     # 初始化SQLAlchemy扩展
@@ -26,19 +33,19 @@ def init_db(app):
         try:
             # 先尝试连接到数据库
             db.engine.connect()
-            logger.info("成功连接到MySQL数据库")
+            logger.info(f"成功连接到MySQL数据库: {mysql_host}/{mysql_db}")
         except Exception as e:
             logger.error(f"连接数据库失败: {str(e)}")
             # 尝试创建数据库
             try:
                 # 创建临时引擎连接到MySQL服务器而不指定数据库
                 from sqlalchemy import create_engine, text
-                temp_engine = create_engine('mysql+pymysql://root:HelloWorld@localhost/')
+                temp_engine = create_engine(f'mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}/')
                 with temp_engine.connect() as conn:
                     # 创建数据库 - 使用text()方法确保兼容性
-                    conn.execute(text("CREATE DATABASE IF NOT EXISTS video_generation"))
+                    conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {mysql_db}"))
                     conn.commit()
-                logger.info("创建数据库video_generation成功")
+                logger.info(f"创建数据库{mysql_db}成功")
             except Exception as db_create_error:
                 logger.error(f"创建数据库失败: {str(db_create_error)}")
                 return False
@@ -199,24 +206,6 @@ def update_image2video_status(task_id, status, response_data=None, video_url=Non
         db.session.rollback()
         return False
 
-def get_text2video_history():
-    """获取文本生成视频的历史记录"""
-    try:
-        records = Text2VideoRequest.query.order_by(Text2VideoRequest.created_at.desc()).all()
-        return [record.to_dict() for record in records]
-    except Exception as e:
-        logger.error(f"获取Text2Video历史记录失败: {str(e)}")
-        return []
-
-def get_image2video_history():
-    """获取图片生成视频的历史记录"""
-    try:
-        records = Image2VideoRequest.query.order_by(Image2VideoRequest.created_at.desc()).all()
-        return [record.to_dict() for record in records]
-    except Exception as e:
-        logger.error(f"获取Image2Video历史记录失败: {str(e)}")
-        return []
-
 def upload_video_to_oss(video_url, video_type, task_id):
     """
     将视频上传到OSS
@@ -290,4 +279,151 @@ def upload_video_to_oss(video_url, video_type, task_id):
         
     except Exception as e:
         logger.error(f"上传视频到OSS失败: {str(e)}")
-        return None 
+        return None
+
+class ReplicateImage2VideoDBHelper:
+    """
+    处理Replicate图像转视频的数据库操作
+    """
+    
+    @staticmethod
+    def save_request(task_id, image_url, params):
+        """
+        保存Replicate图片到视频请求到数据库
+        
+        参数:
+            task_id: 任务ID
+            image_url: 图片URL
+            params: 请求参数字典
+        """
+        try:
+            new_request = ReplicateImage2VideoRequest(
+                task_id=task_id,
+                image_url=image_url,
+                prompt=params.get('prompt', ''),
+                model=params.get('model', ''),
+                width=params.get('width', 0),
+                height=params.get('height', 0),
+                num_frames=params.get('num_frames', 81),
+                fps=params.get('fps', 0),
+                seed=params.get('seed'),
+                guide_scale=params.get('guide_scale'),
+                steps=params.get('steps'),
+                shift=params.get('shift'),
+                request_params=json.dumps(params, ensure_ascii=False),
+                status='PENDING'
+            )
+            
+            db.session.add(new_request)
+            db.session.commit()
+            logger.info(f"已保存Replicate图片到视频请求: {task_id}")
+            return True
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"保存Replicate图片到视频请求失败: {e}")
+            return False
+    
+    @staticmethod
+    def update_status(task_id, status, replicate_id=None, video_url=None, oss_video_url=None, response_data=None, process_time=None):
+        """
+        更新Replicate图片到视频请求状态
+        
+        参数:
+            task_id: 任务ID
+            status: 任务状态
+            replicate_id: Replicate预测ID
+            video_url: 视频URL
+            oss_video_url: OSS视频URL
+            response_data: 响应数据
+            process_time: 处理时间
+        """
+        try:
+            request = ReplicateImage2VideoRequest.query.filter_by(task_id=task_id).first()
+            if not request:
+                logger.error(f"未找到Replicate图片到视频请求: {task_id}")
+                return False
+                
+            request.status = status
+            
+            if replicate_id:
+                request.replicate_id = replicate_id
+                
+            if video_url:
+                request.video_url = video_url
+                
+            if oss_video_url:
+                request.oss_video_url = oss_video_url
+                
+            if response_data:
+                request.response_data = json.dumps(response_data, ensure_ascii=False)
+                
+            if process_time is not None:
+                request.process_time = process_time
+                
+            db.session.commit()
+            logger.info(f"已更新Replicate图片到视频请求状态: {task_id} -> {status}")
+            return True
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"更新Replicate图片到视频请求状态失败: {e}")
+            return False
+    
+    @staticmethod
+    def get_history(limit=10):
+        """
+        获取Replicate图片到视频历史记录
+        
+        参数:
+            limit: 结果数量限制
+        
+        返回:
+            历史记录列表
+        """
+        try:
+            requests = ReplicateImage2VideoRequest.query.order_by(
+                ReplicateImage2VideoRequest.created_at.desc()
+            ).limit(limit).all()
+            
+            result = [request.to_dict() for request in requests]
+            return result
+        except Exception as e:
+            logger.error(f"获取Replicate图片到视频历史记录失败: {e}")
+            return []
+
+# 兼容性函数，保持向后兼容性
+def save_replicate_image2video_request(task_id, image_url, params):
+    """
+    保存Replicate图片到视频请求到数据库 (兼容性函数)
+    """
+    return ReplicateImage2VideoDBHelper.save_request(task_id, image_url, params)
+
+def update_replicate_image2video_status(task_id, status, replicate_id=None, video_url=None, oss_video_url=None, response_data=None, process_time=None):
+    """
+    更新Replicate图片到视频请求状态 (兼容性函数)
+    """
+    return ReplicateImage2VideoDBHelper.update_status(task_id, status, replicate_id, video_url, oss_video_url, response_data, process_time)
+
+def get_replicate_image2video_history(limit=10):
+    """
+    获取Replicate图片到视频历史记录 (兼容性函数)
+    """
+    return ReplicateImage2VideoDBHelper.get_history(limit)
+
+def get_text2video_history():
+    """获取文本生成视频的历史记录"""
+    try:
+        records = Text2VideoRequest.query.order_by(Text2VideoRequest.created_at.desc()).all()
+        return [record.to_dict() for record in records]
+    except Exception as e:
+        logger.error(f"获取Text2Video历史记录失败: {str(e)}")
+        return []
+
+def get_image2video_history():
+    """获取图片生成视频的历史记录"""
+    try:
+        records = Image2VideoRequest.query.order_by(Image2VideoRequest.created_at.desc()).limit(10).all()
+        history = [record.to_dict() for record in records]
+        return history
+    except Exception as e:
+        logger.error(f"查询Image2Video历史记录失败: {str(e)}")
+        return [] 
