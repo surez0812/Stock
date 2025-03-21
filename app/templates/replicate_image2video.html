@@ -577,6 +577,18 @@
                         task.status = 'success';
                         task.videoUrl = data.video_url;
                         task.processTime = data.process_time;
+                        task.replicateId = data.replicate_id;
+                        task.requestId = data.request_id;
+                        
+                        // 再次查询一次状态，确保数据库状态更新
+                        setTimeout(async () => {
+                            try {
+                                await fetch(`/api/replicate/image2video/status/${task.taskId}`);
+                                console.log("再次检查状态确保数据库更新成功");
+                            } catch (error) {
+                                console.error("再次检查状态失败:", error);
+                            }
+                        }, 1000);
                         
                         // 更新UI
                         updateTaskList();
@@ -642,11 +654,12 @@
                         
                         // 添加历史记录信息
                         let statusBadge = '';
-                        if (record.status === 'SUCCEEDED') {
+                        const normalizedStatus = (record.status || '').toUpperCase();
+                        if (normalizedStatus === 'SUCCEEDED') {
                             statusBadge = '<span class="badge bg-success">成功</span> ';
-                        } else if (record.status === 'FAILED') {
+                        } else if (normalizedStatus === 'FAILED') {
                             statusBadge = '<span class="badge bg-danger">失败</span> ';
-                        } else if (record.status === 'PENDING') {
+                        } else if (normalizedStatus === 'PENDING') {
                             statusBadge = '<span class="badge bg-warning">处理中</span> ';
                         }
                         

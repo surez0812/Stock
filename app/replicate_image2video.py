@@ -238,12 +238,22 @@ def check_status(task_id):
                     
                     # 准备response_data以便安全序列化
                     if isinstance(prediction, dict):
-                        response_data = prediction
+                        # 创建一个新字典，确保所有值都是可序列化的
+                        response_data = {}
+                        for k, v in prediction.items():
+                            try:
+                                # 尝试将值转换为JSON，确保可序列化
+                                json.dumps({k: v})
+                                response_data[k] = v
+                            except:
+                                # 如果无法序列化，则转换为字符串
+                                response_data[k] = str(v)
                     else:
                         # 尝试转换为可序列化的格式
                         try:
+                            # 不要直接使用__dict__，它可能包含不可序列化的对象
                             if hasattr(prediction, '__dict__'):
-                                response_data = {"result": prediction.__dict__}
+                                response_data = {"result": str(prediction)}
                             else:
                                 response_data = {"result": str(prediction)}
                         except:
@@ -289,6 +299,36 @@ def check_status(task_id):
                 )
                 
                 logger.error(f"任务失败: {task_id}, 错误: {task_info['error']}")
+        elif current_status == "SUCCEEDED" and task_info.get("video_url"):
+            # 如果任务已成功，确保数据库状态已更新
+            # 检查数据库中的状态
+            tasks = ReplicateImage2VideoDBHelper.get_history()
+            for db_task in tasks:
+                if db_task['task_id'] == task_id:
+                    # 如果数据库中的状态不是SUCCEEDED，更新它
+                    if db_task['status'] != "SUCCEEDED":
+                        logger.info(f"任务 {task_id} 内存状态已是SUCCEEDED，但数据库中仍是 {db_task['status']}，正在更新...")
+                        
+                        # 准备response_data
+                        response_data = {"result": str(task_info.get("video_url", ""))}
+                        
+                        try:
+                            # 确保可以序列化
+                            json.dumps(response_data)
+                        except:
+                            # 如果序列化失败，简化response_data
+                            response_data = {"result": "success"}
+                            
+                        # 更新数据库
+                        ReplicateImage2VideoDBHelper.update_status(
+                            task_id=task_id,
+                            status="SUCCEEDED",
+                            replicate_id=task_info.get("replicate_id", "unknown"),
+                            video_url=task_info.get("video_url", ""),
+                            response_data=response_data,
+                            process_time=task_info.get("process_time", 0)
+                        )
+                    break
         
         # 格式化处理时间
         process_time = None
